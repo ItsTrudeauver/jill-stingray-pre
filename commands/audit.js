@@ -48,16 +48,18 @@ module.exports = {
         // --- B. EMPTY ROLE SCAN ---
         else if (customId === "audit_scan_empty") {
             const emptyRoles = guild.roles
-    .filter((r) => {
-        // Ensure we are not checking managed roles or the @everyone role
-        if (r.managed || r.id === guild.id) return false;
-        
-        // Count members by checking if any member in the cache has the role.
-        // NOTE: For 100% accuracy, ensure GatewayIntentBits.GuildMembers is enabled in index.js
-        const memberCount = guild.members.filter((m) => m.roles.includes(r.id)).length;
-        return memberCount === 0;
-    })
-                
+                .filter((r) => {
+                    // Ignore managed roles and @everyone
+                    if (r.managed || r.id === guild.id) return false;
+
+                    // Improved Filter: Count members using the guild cache
+                    // Note: Ensure 'guildMembers' intent is enabled in index.js
+                    const memberCount = guild.members.filter((m) =>
+                        m.roles.includes(r.id),
+                    ).length;
+
+                    return memberCount === 0;
+                })
                 .sort((a, b) => b.position - a.position);
 
             if (emptyRoles.length === 0) {
@@ -211,22 +213,30 @@ module.exports = {
 
         // --- E. LONE WOLF SCAN ---
         else if (customId === "audit_scan_lone") {
-           const loneWolves = guild.roles
-    .filter((r) => {
-        if (r.managed) return false;
-        const membersWithRole = guild.members.filter((m) => m.roles.includes(r.id));
-        return membersWithRole.length === 1;
-    })
+            const loneWolves = guild.roles
+                .filter((r) => {
+                    // Ignore managed roles
+                    if (r.managed || r.id === guild.id) return false;
+
+                    // Improved Filter: Count members using the guild cache
+                    const memberCount = guild.members.filter((m) =>
+                        m.roles.includes(r.id),
+                    ).length;
+
+                    return memberCount === 1;
+                })
                 .sort((a, b) => b.position - a.position)
                 .slice(0, 20);
 
             const desc =
                 loneWolves.length > 0
                     ? loneWolves
-                          .map(
-                              (r) =>
-                                  `\`${r.name}\` — <@${guild.members.find((m) => m.roles.includes(r.id)).id}>`,
-                          )
+                          .map((r) => {
+                              const owner = guild.members.find((m) =>
+                                  m.roles.includes(r.id),
+                              );
+                              return `\`${r.name}\` — <@${owner ? owner.id : "Unknown"}>`;
+                          })
                           .join("\n")
                     : "No single-user roles detected.";
 
