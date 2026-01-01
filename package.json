@@ -1,0 +1,14 @@
+{
+  "name": "jill-stingray-bot",
+  "version": "1.0.0",
+  "main": "index.js",
+  "dependencies": {
+    "@napi-rs/canvas": "^0.1.88",
+    "compromise": "^14.14.5",
+    "dotenv": "^16.6.1",
+    "eris": "^0.17.2"
+  },
+  "scripts": {
+    "start": "node index.js"
+  }
+}

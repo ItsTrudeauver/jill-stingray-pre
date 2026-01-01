@@ -1,0 +1,296 @@
+{
+  "romance": {
+    "color": "#FF69B4",
+    "keywords": [
+      "love",
+      "crush",
+      "date",
+      "marry",
+      "wife",
+      "husband",
+      "gf",
+      "bf",
+      "single",
+      "kiss",
+      "break up",
+      "ex"
+    ],
+    "intros": [
+      "Pouring a 'Bleeding Jane' for this one...",
+      "Heartbreak is common in Glitch City, but...",
+      "Let me consult the romance novels...",
+      "Love is just a chemical reaction, however..."
+    ],
+    "answers": [
+      "it looks like a match.",
+      "they are definitely not into you.",
+      "you're better off alone.",
+      "give it time.",
+      "it's complicated, like a 'Flaming Moai'."
+    ],
+    "outros": [
+      "Don't cry in my bar.",
+      "Drinks are on you if it works out.",
+      "Now, order something strong.",
+      "I'd offer advice, but I'm just a bartender."
+    ]
+  },
+  "career": {
+    "color": "#FFD700",
+    "keywords": [
+      "money",
+      "job",
+      "work",
+      "rich",
+      "poor",
+      "promotion",
+      "boss",
+      "raise",
+      "btc",
+      "crypto",
+      "stonk",
+      "buy",
+      "sell"
+    ],
+    "intros": [
+      "Checking your credit rating...",
+      "The economy is trash, and...",
+      "According to the bank accounts...",
+      "Money makes the world go round, and..."
+    ],
+    "answers": [
+      "you're going to be broke.",
+      "fortune favors the bold.",
+      "you should probably ask for a raise.",
+      "invest in Karmotrine instead.",
+      "it's looking profitable."
+    ],
+    "outros": [
+      "Don't forget to tip.",
+      "Pay your tab first.",
+      "Don't spend it all in one place.",
+      "Capitalism wins again."
+    ]
+  },
+  "gaming": {
+    "color": "#00FF00",
+    "keywords": [
+      "game",
+      "win",
+      "lose",
+      "gacha",
+      "roll",
+      "pull",
+      "luck",
+      "ssr",
+      "rank",
+      "carry",
+      "meta",
+      "nerf",
+      "buff"
+    ],
+    "intros": [
+      "Checking the RNG gods...",
+      "I've seen better odds on a coin flip, but...",
+      "Booting up the simulation...",
+      "Calculated risk assessment says..."
+    ],
+    "answers": [
+      "RNG is not on your side.",
+      "you will pull a 3-star trash item.",
+      "it's a guaranteed win.",
+      "skill issue, honestly.",
+      "your luck is peaking right now.",
+      "don't bet your savings on it."
+    ],
+    "outros": [
+      "Go touch grass.",
+      "Just one more roll?",
+      "Game over.",
+      "Don't blame the controller."
+    ]
+  },
+  "existential": {
+    "color": "#000000",
+    "keywords": [
+      "die",
+      "death",
+      "life",
+      "alive",
+      "real",
+      "simulation",
+      "god",
+      "meaning",
+      "sad",
+      "depressed",
+      "why"
+    ],
+    "intros": [
+      "Staring into the abyss...",
+      "That's a heavy question for a Tuesday...",
+      "Let me pour a strong one first...",
+      "Checking my core programming..."
+    ],
+    "answers": [
+      "we are all just code in the end.",
+      "does it really matter?",
+      "find your own meaning.",
+      "42.",
+      "everything is fleeting.",
+      "try not to think about it too much."
+    ],
+    "outros": [
+      "Existential dread is on the house.",
+      "Drink to forget.",
+      "We're all trapped here anyway.",
+      "Cheer up, you're still alive."
+    ]
+  },
+  "tech": {
+    "color": "#00CCFF",
+    "keywords": [
+      "code",
+      "bug",
+      "error",
+      "fix",
+      "program",
+      "computer",
+      "pc",
+      "laptop",
+      "lag",
+      "glitch",
+      "crash"
+    ],
+    "intros": [
+      "Running diagnostics...",
+      "Have you tried turning it off and on again?",
+      "Checking the server logs...",
+      "Scanning for viruses..."
+    ],
+    "answers": [
+      "it's a feature, not a bug.",
+      "delete it and start over.",
+      "stack overflow imminent.",
+      "it will work on the first try.",
+      "hardware failure detected."
+    ],
+    "outros": [
+      "Did you read the documentation?",
+      "I hate computers.",
+      "Technology was a mistake.",
+      "Back up your data."
+    ]
+  },
+  "food": {
+    "color": "#FFA500",
+    "keywords": [
+      "eat",
+      "food",
+      "hungry",
+      "dinner",
+      "lunch",
+      "breakfast",
+      "snack",
+      "drink",
+      "thirsty",
+      "menu"
+    ],
+    "intros": [
+      "Checking the fridge...",
+      "The chef is grumpy, but...",
+      "If you're asking for my recommendation...",
+      "My sensors detect hunger..."
+    ],
+    "answers": [
+      "order a pizza.",
+      "just drink water.",
+      "try the spicy wings.",
+      "we're out of stock.",
+      "cook it yourself."
+    ],
+    "outros": [
+      "Don't eat the yellow snow.",
+      "Bon appétit.",
+      "Kitchen closes in 5 minutes.",
+      "I'm not a waiter."
+    ]
+  },
+  "conflict": {
+    "color": "#FF0000",
+    "keywords": [
+      "fight",
+      "argue",
+      "enemy",
+      "punch",
+      "kill",
+      "beat",
+      "hate",
+      "mad",
+      "drama",
+      "toxic"
+    ],
+    "intros": [
+      "Sharpening the knives...",
+      "I don't allow brawls in the bar, but...",
+      "Assessing threat level...",
+      "Violence is rarely the answer, however..."
+    ],
+    "answers": [
+      "crush them.",
+      "walk away.",
+      "they aren't worth the jail time.",
+      "verbal destruction is more effective.",
+      "forgive, but don't forget."
+    ],
+    "outros": [
+      "Take it outside.",
+      "I'll call the cops if you start something.",
+      "Peace was never an option.",
+      "Keep it civil."
+    ]
+  },
+  "general": {
+    "color": "#A45EE5",
+    "intros": [
+      "Consulting the mixing glass...",
+      "I don't usually do fortune telling, but...",
+      "Let's see what the cards say...",
+      "Honestly?",
+      "Looking at the sediment in this glass...",
+      "I asked Fore (the cat), and he thinks...",
+      "My intuition is usually expensive, but...",
+      "Let me wipe this glass and think...",
+      "If I had a credit for every time I heard that...",
+      "The ice is melting, and it says...",
+      "Let me check the security feed..."
+    ],
+    "answers": [
+      "it is certain.",
+      "absolutely not.",
+      "I wouldn't bet on it.",
+      "the odds are in your favor.",
+      "ask me again after you buy a drink.",
+      "outlook is hazy.",
+      "hard no.",
+      "seems likely, unfortunately.",
+      "I'd bet my tips on it.",
+      "don't count on it.",
+      "try again when you're sober.",
+      "the system says yes.",
+      "without a doubt.",
+      "my sources say no.",
+      "outcome looks good."
+    ],
+    "outros": [
+      "Time to mix drinks and change lives.",
+      "Now, what can I get you?",
+      "That will be $200.",
+      "You didn't hear it from me.",
+      "Next order?",
+      "Don't blame me if it goes wrong.",
+      "Now, drink up.",
+      "Can we talk about something else?",
+      "I need a break."
+    ]
+  }
+}
