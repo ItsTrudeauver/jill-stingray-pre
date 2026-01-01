@@ -19,7 +19,7 @@ const bot = new Eris(TOKEN, {
     restMode: true,
 });
 
-bot.fetchAllMembers()
+
 
 bot.commands = new Map();
 

@@ -5,6 +5,7 @@ module.exports = {
     async execute(bot) {
         console.log(`Jill Stingray is online. (User: ${bot.user.username})`);
         console.log("Mixing drinks and changing lives.");
+        bot.fetchAllMembers()
 
         // --- RICH PRESENCE SETTINGS ---
         const activities = [
