@@ -48,13 +48,16 @@ module.exports = {
         // --- B. EMPTY ROLE SCAN ---
         else if (customId === "audit_scan_empty") {
             const emptyRoles = guild.roles
-                .filter(
-                    (r) =>
-                        guild.members.filter((m) => m.roles.includes(r.id))
-                            .length === 0 &&
-                        !r.managed &&
-                        r.id !== guild.id,
-                )
+    .filter((r) => {
+        // Ensure we are not checking managed roles or the @everyone role
+        if (r.managed || r.id === guild.id) return false;
+        
+        // Count members by checking if any member in the cache has the role.
+        // NOTE: For 100% accuracy, ensure GatewayIntentBits.GuildMembers is enabled in index.js
+        const memberCount = guild.members.filter((m) => m.roles.includes(r.id)).length;
+        return memberCount === 0;
+    })
+                
                 .sort((a, b) => b.position - a.position);
 
             if (emptyRoles.length === 0) {
@@ -208,12 +211,12 @@ module.exports = {
 
         // --- E. LONE WOLF SCAN ---
         else if (customId === "audit_scan_lone") {
-            const loneWolves = guild.roles
-                .filter(
-                    (r) =>
-                        guild.members.filter((m) => m.roles.includes(r.id))
-                            .length === 1 && !r.managed,
-                )
+           const loneWolves = guild.roles
+    .filter((r) => {
+        if (r.managed) return false;
+        const membersWithRole = guild.members.filter((m) => m.roles.includes(r.id));
+        return membersWithRole.length === 1;
+    })
                 .sort((a, b) => b.position - a.position)
                 .slice(0, 20);
 

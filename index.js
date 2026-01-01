@@ -14,7 +14,7 @@ const bot = new Eris(TOKEN, {
         "guildMessages", // Needed to receive messages
         "messageContent", // Needed to read the emoji text inside messages
         "guildMessageReactions", // Needed to track reactions
-        "guildMebers",
+        "guildMembers",
     ],
     restMode: true,
 });
