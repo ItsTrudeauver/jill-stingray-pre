@@ -188,7 +188,7 @@ module.exports = {
                 {
                     name: name,
                     color: color,
-                    hoist: true, // Make it separate
+                    hoist: false, // Make it separate
                     mentionable: false,
                     permissions: 0, // No extra perms
                 },
