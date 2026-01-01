@@ -5,7 +5,12 @@ module.exports = {
     async execute(bot) {
         console.log(`Jill Stingray is online. (User: ${bot.user.username})`);
         console.log("Mixing drinks and changing lives.");
-        bot.fetchAllMembers()
+        
+        bot.guilds.forEach(guild => {
+            guild.fetchMembers().then(() => {
+                console.log(`[CACHE] Fully indexed members for: ${guild.name}`);
+            }).catch(err => console.error(`Failed to fetch: ${guild.name}`, err));
+        });
 
         // --- RICH PRESENCE SETTINGS ---
         const activities = [
