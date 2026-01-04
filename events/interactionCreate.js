@@ -95,7 +95,10 @@ module.exports = {
             const command = bot.commands.get(interaction.data.name);
             if (!command || !command.autocomplete) return;
             try {
-                await command.autocomplete(interaction, bot);
+                // 1. Get the choices from the command
+                const choices = await command.autocomplete(interaction, bot);
+                // 2. Send them back to Discord (CRITICAL STEP)
+                return interaction.result(choices);
             } catch (err) {
                 console.error(`Autocomplete Error:`, err);
             }
