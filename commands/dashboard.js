@@ -128,15 +128,31 @@ module.exports = {
     },
 
     async toggleCommand(interaction, cmd, page) {
+        // Fetch current rules from DB
         const res = await db.query("SELECT command_rules FROM guild_settings WHERE guild_id = $1", [interaction.guildID]);
+        
+        // Prepare the rules object (use DB rules or empty object if missing)
         let rules = res.rows[0]?.command_rules || {};
+
+        // Initialize the specific command rule from defaults if it's missing in the custom rules
         if (!rules[cmd]) rules[cmd] = { ...DEFAULT_RULES[cmd] };
 
+        // Toggle the enabled state
         rules[cmd].enabled = !rules[cmd].enabled;
+        
+        const rulesJson = JSON.stringify(rules);
 
-        await db.query(`UPDATE guild_settings SET command_rules = $2 WHERE guild_id = $1`, 
-            [interaction.guildID, JSON.stringify(rules)]);
+        // CHECK: If the row didn't exist (res.rows.length === 0), we must INSERT.
+        // Otherwise, we UPDATE.
+        if (res.rows.length === 0) {
+            await db.query(`INSERT INTO guild_settings (guild_id, command_rules) VALUES ($1, $2)`, 
+                [interaction.guildID, rulesJson]);
+        } else {
+            await db.query(`UPDATE guild_settings SET command_rules = $2 WHERE guild_id = $1`, 
+                [interaction.guildID, rulesJson]);
+        }
 
+        // Re-render the dashboard to show the new state
         await this.renderModules(interaction, page);
     },
 
