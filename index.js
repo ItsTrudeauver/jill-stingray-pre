@@ -68,7 +68,6 @@ const loadEvents = () => {
 console.log("--- Jill Stingray Boot Sequence ---");
 loadCommands();
 loadEvents();
-bot.connect();
 
 // --- KEEP ALIVE ---
 

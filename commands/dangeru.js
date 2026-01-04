@@ -6,7 +6,7 @@ const path = require("path");
 const configPath = path.join(__dirname, "../data/dangeru_config.json");
 
 // !!! REPLACE WITH YOUR ID !!!
-const BOT_OWNER_ID = "YOUR_DISCORD_ID_HERE"; 
+const BOT_OWNER_ID = "541882021434359811"; 
 
 module.exports = {
     name: "dangeru",
