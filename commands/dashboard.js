@@ -3,34 +3,113 @@ const DEFAULT_RULES = require('../utils/default');
 const PROTECTED_MODULES = ['dashboard', 'help'];
 
 module.exports = {
-    // 1. Properties at the ROOT level (No 'data' wrapper)
     name: 'dashboard',
     description: 'Configure which bot modules are enabled in this server.',
-    type: 1, // Slash Command
-    default_member_permissions: "32", // 'Manage Guild' permission bit
+    type: 1, 
+    default_member_permissions: "32", // Manage Guild
 
-    // 2. The execution entry point (Check if your other commands use 'execute' or 'run')
+    // --- 1. Main Slash Command ---
     async execute(interaction) {
-        await this.renderDashboard(interaction);
+        try {
+            // Generate the dashboard view
+            const payload = await this.getDashboardPayload(interaction);
+            // Send it as a new message
+            await interaction.createMessage(payload);
+        } catch (err) {
+            console.error(err);
+            await interaction.createMessage({ content: "❌ Error loading dashboard.", flags: 64 });
+        }
     },
 
-    async renderDashboard(interaction, update = false) {
+    // --- 2. Dropdown Interaction Handler ---
+    async handleSelect(interaction) {
         const client = await db.connect();
         try {
-            // Fetch bot commands (Adjust path if 'interaction.client' is different in your handler)
-            const botInstance = interaction.channel?.client || interaction.client; 
-            const botCommands = botInstance.commands;
+            const selectedModules = interaction.data.values; // What the user checked
+            const guildID = interaction.guildID;
 
-            // Filter out protected modules
-            const validCommands = Array.from(botCommands.values()).filter(cmd => 
-                !PROTECTED_MODULES.includes(cmd.name) // Changed cmd.data.name to cmd.name
+            // A. Fetch current rules
+            const res = await client.query("SELECT command_rules FROM guild_settings WHERE guild_id = $1", [guildID]);
+            let rules = res.rows[0]?.command_rules || {};
+
+            // B. Determine available commands (to know what was UNCHECKED)
+            const botInstance = interaction.channel?.client || interaction.client;
+            // Filter commands exactly like we do in the view
+            const validCommands = Array.from(botInstance.commands.values()).filter(cmd => 
+                !PROTECTED_MODULES.includes(cmd.name)
+            );
+            
+            // Sort to match the menu order (Crucial for the slice logic)
+            const sortedCommandNames = validCommands.map(c => c.name).sort();
+            
+            // Only update the commands that were actually visible in the menu (Top 25)
+            const visibleCommandNames = sortedCommandNames.slice(0, 25);
+
+            // C. Update Logic
+            visibleCommandNames.forEach(name => {
+                // Ensure default exists
+                if (!rules[name]) rules[name] = { enabled: true, ...DEFAULT_RULES[name] };
+
+                // If name is in the selection -> ENABLED. If not -> DISABLED.
+                if (selectedModules.includes(name)) {
+                    rules[name].enabled = true;
+                } else {
+                    rules[name].enabled = false;
+                }
+            });
+
+            // D. Save to DB
+            const rulesJson = JSON.stringify(rules);
+            if (res.rowCount === 0) {
+                await client.query("INSERT INTO guild_settings (guild_id, command_rules) VALUES ($1, $2)", [guildID, rulesJson]);
+            } else {
+                await client.query("UPDATE guild_settings SET command_rules = $2 WHERE guild_id = $1", [guildID, rulesJson]);
+            }
+
+            // E. Refresh the Dashboard View
+            // We pass 'client' to reuse the DB connection we already have open
+            const payload = await this.getDashboardPayload(interaction, client);
+            
+            // USE editParent: This acknowledges the click AND updates the message instantly.
+            await interaction.editParent(payload);
+
+        } catch (err) {
+            console.error(err);
+            // If something broke, try to tell the user ephemerally
+            try {
+                await interaction.createMessage({ content: "❌ Failed to update settings.", flags: 64 });
+            } catch (e) { }
+        } finally {
+            client.release();
+        }
+    },
+
+    // --- 3. View Generator (Reusable) ---
+    async getDashboardPayload(interaction, externalDbClient = null) {
+        let client;
+        let shouldRelease = false;
+
+        // Reuse DB connection if provided, otherwise open a new one
+        if (externalDbClient) {
+            client = externalDbClient;
+        } else {
+            client = await db.connect();
+            shouldRelease = true;
+        }
+
+        try {
+            const botInstance = interaction.channel?.client || interaction.client;
+            
+            // 1. Get Commands
+            const validCommands = Array.from(botInstance.commands.values()).filter(cmd => 
+                !PROTECTED_MODULES.includes(cmd.name)
             );
 
-            // Fetch DB settings
+            // 2. Get Rules
             const res = await client.query("SELECT command_rules FROM guild_settings WHERE guild_id = $1", [interaction.guildID]);
             let dbRules = res.rows[0]?.command_rules || {};
 
-            // Merge defaults
+            // 3. Merge Defaults
             const currentRules = { ...DEFAULT_RULES };
             Object.keys(dbRules).forEach(key => {
                 if (currentRules[key]) {
@@ -38,9 +117,9 @@ module.exports = {
                 }
             });
 
-            // Build Options
+            // 4. Build Options
             const options = validCommands.map(cmd => {
-                const name = cmd.name; // Changed cmd.data.name to cmd.name
+                const name = cmd.name;
                 const isEnabled = currentRules[name] ? currentRules[name].enabled : true;
                 
                 let desc = cmd.description || 'No description provided.';
@@ -51,14 +130,16 @@ module.exports = {
                     value: name,
                     description: desc,
                     emoji: { name: isEnabled ? '🟢' : '🔴' },
-                    default: isEnabled
+                    default: isEnabled // This checks the box if enabled
                 };
             });
 
+            // Sort & Slice
             options.sort((a, b) => a.label.localeCompare(b.label));
             const safeOptions = options.slice(0, 25);
 
-            const payload = {
+            // 5. Return JSON Payload
+            return {
                 embeds: [{
                     title: '🎛️ Dynamic Server Dashboard',
                     description: 'Select modules to enable/disable.\nDescriptions are pulled automatically from command files.',
@@ -78,68 +159,8 @@ module.exports = {
                 }]
             };
 
-            if (update) {
-                await interaction.editOriginalMessage(payload);
-            } else {
-                await interaction.createMessage(payload);
-            }
-
-        } catch (err) {
-            console.error(err);
-            const errPayload = { content: '❌ A database error occurred.', flags: 64 };
-            if (update) await interaction.createFollowup(errPayload);
-            else await interaction.createMessage(errPayload);
         } finally {
-            client.release();
-        }
-    },
-
-    async handleSelect(interaction) {
-        const selectedModules = interaction.data.values; 
-        const client = await db.connect();
-
-        try {
-            const res = await client.query("SELECT command_rules FROM guild_settings WHERE guild_id = $1", [interaction.guildID]);
-            let rules = res.rows[0]?.command_rules || {};
-
-            const botInstance = interaction.channel?.client || interaction.client;
-            const botCommands = botInstance.commands;
-            
-            const validCommands = Array.from(botCommands.values()).filter(cmd => 
-                !PROTECTED_MODULES.includes(cmd.name)
-            );
-
-            // Re-slice to ensure we toggle only what was visible
-            const options = validCommands.map(c => c.name).sort(); 
-            const visibleCommandNames = options.slice(0, 25);
-
-            visibleCommandNames.forEach(name => {
-                if (!rules[name]) rules[name] = { enabled: true, ...DEFAULT_RULES[name] };
-
-                // If selected -> Enabled. If NOT selected -> Disabled.
-                if (selectedModules.includes(name)) {
-                    rules[name].enabled = true;
-                } else {
-                    rules[name].enabled = false;
-                }
-            });
-
-            const rulesJson = JSON.stringify(rules);
-            
-            if (res.rowCount === 0) {
-                await client.query("INSERT INTO guild_settings (guild_id, command_rules) VALUES ($1, $2)", [interaction.guildID, rulesJson]);
-            } else {
-                await client.query("UPDATE guild_settings SET command_rules = $2 WHERE guild_id = $1", [interaction.guildID, rulesJson]);
-            }
-
-            await interaction.deferUpdate();
-            await this.renderDashboard(interaction, true);
-
-        } catch (err) {
-            console.error(err);
-            await interaction.createMessage({ content: 'Failed to save settings.', flags: 64 });
-        } finally {
-            client.release();
+            if (shouldRelease) client.release();
         }
     }
 };
