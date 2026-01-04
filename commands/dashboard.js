@@ -1,4 +1,4 @@
-const { pool } = require('../utils/db');
+const { db } = require('../utils/db');
 const DEFAULT_RULES = require('../utils/default');
 const PROTECTED_MODULES = ['dashboard', 'help'];
 
@@ -15,7 +15,7 @@ module.exports = {
     },
 
     async renderDashboard(interaction, update = false) {
-        const client = await pool.connect();
+        const client = await db.connect();
         try {
             // Fetch bot commands (Adjust path if 'interaction.client' is different in your handler)
             const botInstance = interaction.channel?.client || interaction.client; 
@@ -96,7 +96,7 @@ module.exports = {
 
     async handleSelect(interaction) {
         const selectedModules = interaction.data.values; 
-        const client = await pool.connect();
+        const client = await db.connect();
 
         try {
             const res = await client.query("SELECT command_rules FROM guild_settings WHERE guild_id = $1", [interaction.guildID]);
