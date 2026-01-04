@@ -108,10 +108,20 @@ module.exports = {
         // 3. BUTTONS, MENUS & MODALS
         // ====================================================
         else if (interaction.data && interaction.data.custom_id) {
+
             const customId = interaction.data.custom_id;
 
             // --- ROUTE A: SYSTEM ROUTERS ---
-            
+            // System Diagnostics (From Guild Join)
+            if (customId === "sys_verify_roles") {
+                // Determine if we need to edit or reply
+                // We re-import the generator logic to re-check specific to this guild
+                const guildCreate = require("./guildCreate");
+                const payload = await guildCreate.generateWelcomePayload(interaction.channel.guild, bot);
+                
+                // Update the message with new status
+                return interaction.editParent(payload);
+            }
             // Config Overview Pagination (NEW)
             if (customId.startsWith("config_page_")) {
                 const cmd = bot.commands.get("config");
