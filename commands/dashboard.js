@@ -72,8 +72,12 @@ module.exports = {
         }];
 
         const payload = { embeds: [embed], components };
-        if (isUpdate) await interaction.editMessage(interaction.message.id, payload);
-        else await interaction.createMessage(payload);
+if (isUpdate) {
+    // OLD: await interaction.editMessage(interaction.message.id, payload);
+    await interaction.editParent(payload); // NEW: editParent handles acknowledgment
+} else {
+    await interaction.createMessage(payload);
+}
     },
 
     // --- PAGE 2: MODULES (Grid) ---
@@ -113,13 +117,15 @@ module.exports = {
             ]
         });
 
-        const embed = {
-            title: "🎛️ Dashboard | Modules",
-            description: "Click to Toggle commands ON (Green) or OFF (Red).\n*Changes apply immediately.*",
-            color: 0x2b2d31
-        };
+        // Change line ~122
+const embed = {
+    title: "🎛️ Dashboard | Modules",
+    description: "Click to Toggle commands ON (Green) or OFF (Red).\n*Changes apply immediately.*",
+    color: 0x2b2d31
+};
 
-        await interaction.editMessage(interaction.message.id, { embeds: [embed], components: rows });
+// OLD: await interaction.editMessage(interaction.message.id, { embeds: [embed], components: rows });
+await interaction.editParent({ embeds: [embed], components: rows }); // NEW: No message ID needed
     },
 
     // --- LOGIC: TOGGLE ---
