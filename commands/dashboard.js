@@ -7,33 +7,39 @@ module.exports = {
     options: [],
 
     async execute(interaction, bot) {
-        // Auth Check
+        await interaction.acknowledge(); // Prevents "Unknown Interaction" timeout
         if (!await this.checkAuth(interaction)) return;
-        await this.renderHome(interaction, bot);
+        await this.renderHome(interaction, bot, true);
     },
 
     async handleInteraction(interaction, bot) {
+        // Defer immediately to give Postgres/Discord time to talk
+        await interaction.deferUpdate(); 
         if (!await this.checkAuth(interaction)) return;
 
         const id = interaction.data.custom_id;
 
-        // Navigation
-        if (id === "dash_home" || id === "dash_launch_intro") return this.renderHome(interaction, bot, true);
-        if (id === "dash_modules") return this.renderModules(interaction, true);
+        if (id === "dash_home") return this.renderHome(interaction, bot, true);
         
-        // Toggles
+        // Handle paginated modules: "dash_modules_PAGE"
+        if (id.startsWith("dash_modules_")) {
+            const page = parseInt(id.split("_")[2]) || 0;
+            return this.renderModules(interaction, page);
+        }
+        
+        // Handle toggles: "dash_toggle_PAGE_COMMAND"
         if (id.startsWith("dash_toggle_")) {
-            const cmd = id.replace("dash_toggle_", "");
-            await this.toggleCommand(interaction, cmd);
+            const parts = id.split("_");
+            const page = parseInt(parts[2]);
+            const cmd = parts[3];
+            await this.toggleCommand(interaction, cmd, page);
         }
     },
 
-    // --- PAGE 1: HOME (Hierarchy & Health) ---
     async renderHome(interaction, bot, isUpdate = false) {
         const guild = bot.guilds.get(interaction.guildID);
         const botMember = guild.members.get(bot.user.id);
         
-        // Hierarchy Check
         let status = "✅ **Optimal**";
         let color = 0x00ff9d;
         let tips = [];
@@ -44,11 +50,9 @@ module.exports = {
             tips.push("• I am missing the `Manage Roles` permission.");
         }
         
-        // Check if bot role is too low for Custom Roles (simple check)
-        // Ideally we compare vs the 'highest' user role, but simplified:
         const botRolePos = this.getBotRolePosition(guild, bot.user.id);
         if (botRolePos < 2) { 
-            tips.push("• My role is very low in the list. Move 'Jill Stingray' higher in Server Settings > Roles.");
+            tips.push("• My role is very low. Move 'Jill Stingray' higher in Server Settings.");
         }
 
         const embed = {
@@ -66,39 +70,34 @@ module.exports = {
             type: 1,
             components: [
                 { type: 2, label: "Overview", style: 1, custom_id: "dash_home", disabled: true },
-                { type: 2, label: "Modules (Switchboard)", style: 1, custom_id: "dash_modules" },
-                // Granular config would go here in V2
+                { type: 2, label: "Modules (Switchboard)", style: 1, custom_id: "dash_modules_0" },
             ]
         }];
 
-        const payload = { embeds: [embed], components };
-if (isUpdate) {
-    // OLD: await interaction.editMessage(interaction.message.id, payload);
-    await interaction.editParent(payload); // NEW: editParent handles acknowledgment
-} else {
-    await interaction.createMessage(payload);
-}
+        if (isUpdate) await interaction.editOriginalMessage({ embeds: [embed], components });
+        else await interaction.createMessage({ embeds: [embed], components });
     },
 
-    // --- PAGE 2: MODULES (Grid) ---
-    async renderModules(interaction, isUpdate = false) {
-        // Fetch current rules
+    async renderModules(interaction, page = 0) {
         const res = await db.query("SELECT command_rules FROM guild_settings WHERE guild_id = $1", [interaction.guildID]);
         const rules = { ...DEFAULT_RULES, ...(res.rows[0]?.command_rules || {}) };
 
-        // Build Grid
+        const commands = Object.keys(rules).filter(k => k !== "dashboard");
+        const pageSize = 12; // 3 rows of 4 buttons
+        const totalPages = Math.ceil(commands.length / pageSize);
+        const start = page * pageSize;
+        const pageCommands = commands.slice(start, start + pageSize);
+
         const rows = [];
         let currentRow = { type: 1, components: [] };
-        const commands = Object.keys(rules).filter(k => k !== "dashboard"); // Don't allow disabling dashboard
 
-        commands.forEach((cmd) => {
+        pageCommands.forEach((cmd) => {
             const isEnabled = rules[cmd].enabled;
-            
             currentRow.components.push({
                 type: 2,
-                style: isEnabled ? 3 : 4, // Green/Red
+                style: isEnabled ? 3 : 4,
                 label: cmd.toUpperCase(),
-                custom_id: `dash_toggle_${cmd}`,
+                custom_id: `dash_toggle_${page}_${cmd}`, // Include page so we return to it after toggle
                 emoji: isEnabled ? { name: "✔️" } : { name: "✖️" }
             });
 
@@ -109,55 +108,42 @@ if (isUpdate) {
         });
         if (currentRow.components.length > 0) rows.push(currentRow);
 
-        // Add Navigation Row at the bottom
+        // Navigation Row
         rows.push({
             type: 1, 
             components: [
-                { type: 2, label: "« Back to Overview", style: 2, custom_id: "dash_home" }
+                { type: 2, label: "« Previous", style: 2, custom_id: `dash_modules_${page - 1}`, disabled: page === 0 },
+                { type: 2, label: "Next »", style: 2, custom_id: `dash_modules_${page + 1}`, disabled: page >= totalPages - 1 },
+                { type: 2, label: "Home", style: 2, custom_id: "dash_home" }
             ]
         });
 
-        // Change line ~122
-const embed = {
-    title: "🎛️ Dashboard | Modules",
-    description: "Click to Toggle commands ON (Green) or OFF (Red).\n*Changes apply immediately.*",
-    color: 0x2b2d31
-};
+        const embed = {
+            title: "🎛️ Dashboard | Modules",
+            description: `Page ${page + 1} of ${totalPages}\nClick to toggle commands ON/OFF.`,
+            color: 0x2b2d31
+        };
 
-// OLD: await interaction.editMessage(interaction.message.id, { embeds: [embed], components: rows });
-await interaction.editParent({ embeds: [embed], components: rows }); // NEW: No message ID needed
+        await interaction.editOriginalMessage({ embeds: [embed], components: rows });
     },
 
-    // --- LOGIC: TOGGLE ---
-    async toggleCommand(interaction, cmd) {
-        // Fetch -> Toggle -> Save
+    async toggleCommand(interaction, cmd, page) {
         const res = await db.query("SELECT command_rules FROM guild_settings WHERE guild_id = $1", [interaction.guildID]);
         let rules = res.rows[0]?.command_rules || {};
-        
-        // Ensure rule object exists (if merging from default)
         if (!rules[cmd]) rules[cmd] = { ...DEFAULT_RULES[cmd] };
 
-        // Toggle
         rules[cmd].enabled = !rules[cmd].enabled;
 
-        // Save
-        await db.query(`
-            UPDATE guild_settings SET command_rules = $2 WHERE guild_id = $1
-        `, [interaction.guildID, JSON.stringify(rules)]);
+        await db.query(`UPDATE guild_settings SET command_rules = $2 WHERE guild_id = $1`, 
+            [interaction.guildID, JSON.stringify(rules)]);
 
-        // Refresh UI
-        await this.renderModules(interaction, true);
+        await this.renderModules(interaction, page);
     },
 
-    // --- HELPER: AUTH CHECK ---
     async checkAuth(interaction) {
-        // Check Admin
         if (interaction.member.permissions.has("administrator")) return true;
-
-        // Check Manager Role
         const res = await db.query("SELECT admin_role_id FROM guild_settings WHERE guild_id = $1", [interaction.guildID]);
         const roleId = res.rows[0]?.admin_role_id;
-        
         if (roleId && interaction.member.roles.includes(roleId)) return true;
 
         await interaction.createMessage({ content: "🔒 Access Denied.", flags: 64 });
@@ -167,12 +153,11 @@ await interaction.editParent({ embeds: [embed], components: rows }); // NEW: No 
     getBotRolePosition(guild, botId) {
         const member = guild.members.get(botId);
         if (!member || member.roles.length === 0) return 0;
-        
         let max = 0;
-        for (const rId of member.roles) {
+        member.roles.forEach(rId => {
             const r = guild.roles.get(rId);
             if (r && r.position > max) max = r.position;
-        }
+        });
         return max;
     }
 };
