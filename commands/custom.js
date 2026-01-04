@@ -1,8 +1,5 @@
 const { db } = require("../utils/db");
 
-// Local state cache to handle button confirmations
-const pendingActions = new Map();
-
 module.exports = {
     name: "custom",
     description: "Manage your personal custom role.",
@@ -19,8 +16,7 @@ module.exports = {
     ],
 
     async execute(interaction, bot) {
-        // 1. IMMEDIATELY DEFER to prevent "Unknown Interaction" (Timeout)
-        // We use ephemeral (64) so the "Thinking..." state is private if you prefer.
+        // Stop the 3-second timeout immediately
         await interaction.defer(); 
 
         const sub = interaction.data.options[0];
@@ -29,7 +25,6 @@ module.exports = {
         const name = sub.options.find((o) => o.name === "name").value;
         let hex = sub.options.find((o) => o.name === "hex").value.replace("#", "");
 
-        // Validate Hex
         if (!/^[0-9A-F]{6}$/i.test(hex)) {
             return interaction.editOriginalMessage({
                 content: "❌ **Invalid Color.** Please use a valid 6-digit Hex code (e.g., `00FF00`).",
@@ -39,7 +34,6 @@ module.exports = {
         const userId = interaction.member.id;
         const guildId = interaction.guildID;
 
-        // 2. Check DB
         const res = await db.query(
             "SELECT role_id FROM custom_roles WHERE guild_id = $1 AND user_id = $2",
             [guildId, userId]
@@ -48,52 +42,50 @@ module.exports = {
 
         if (existingRoleEntry) {
             const guild = bot.guilds.get(guildId);
-            const roleExistsInGuild = guild && guild.roles.has(existingRoleEntry.role_id);
-
-            if (roleExistsInGuild) {
-                pendingActions.set(userId, {
-                    type: "custom_overwrite",
-                    newName: name,
-                    newColor: colorInt,
-                    oldRoleId: existingRoleEntry.role_id
-                });
+            if (guild && guild.roles.has(existingRoleEntry.role_id)) {
+                // Persistent Session: Save to DB instead of a local Map
+                await db.query(
+                    `INSERT INTO pending_custom_actions (user_id, guild_id, new_name, new_color, old_role_id) 
+                     VALUES ($1, $2, $3, $4, $5) 
+                     ON CONFLICT (user_id) DO UPDATE SET 
+                     new_name = EXCLUDED.new_name, new_color = EXCLUDED.new_color, old_role_id = EXCLUDED.old_role_id`,
+                    [userId, guildId, name, colorInt, existingRoleEntry.role_id]
+                );
 
                 return interaction.editOriginalMessage({
-                    embeds: [
-                        {
-                            title: "Identity Conflict",
-                            description: "You already have a registered custom role.\nDo you want to **delete** the old one and create this new one?",
-                            color: 0xffa500,
-                            thumbnail: { url: interaction.member.avatarURL || interaction.member.user.avatarURL },
-                        },
-                    ],
-                    components: [
-                        {
-                            type: 1,
-                            components: [
-                                { type: 2, label: "Overwrite Identity", style: 4, custom_id: "custom_confirm_overwrite" },
-                                { type: 2, label: "Cancel", style: 2, custom_id: "custom_cancel" },
-                            ],
-                        },
-                    ],
+                    embeds: [{
+                        title: "Identity Conflict",
+                        description: "You already have a registered custom role.\nDo you want to **delete** the old one and create this new one?",
+                        color: 0xffa500,
+                        thumbnail: { url: interaction.member.avatarURL || interaction.member.user.avatarURL },
+                    }],
+                    components: [{
+                        type: 1,
+                        components: [
+                            { type: 2, label: "Overwrite Identity", style: 4, custom_id: "custom_confirm_overwrite" },
+                            { type: 2, label: "Cancel", style: 2, custom_id: "custom_cancel" },
+                        ],
+                    }],
                 });
             } else {
                 await db.query("DELETE FROM custom_roles WHERE guild_id = $1 AND user_id = $2", [guildId, userId]);
             }
         }
 
-        // 3. Create New Role (Fresh)
         await this.createCustomRole(interaction, bot, name, colorInt, false);
     },
 
     async handleInteraction(interaction, bot) {
         const userId = interaction.member.id;
-        const data = pendingActions.get(userId);
+
+        // Fetch session from DB so it survives bot restarts
+        const res = await db.query("SELECT * FROM pending_custom_actions WHERE user_id = $1", [userId]);
+        const data = res.rows[0];
         
-        if (!data) return interaction.createMessage({ content: "❌ Session expired.", flags: 64 });
+        if (!data) return interaction.createMessage({ content: "❌ Session expired or bot restarted.", flags: 64 });
 
         if (interaction.data.custom_id === "custom_cancel") {
-            pendingActions.delete(userId);
+            await db.query("DELETE FROM pending_custom_actions WHERE user_id = $1", [userId]);
             return interaction.editParent({
                 embeds: [{ title: "Operation Cancelled", description: "Your existing role remains unchanged.", color: 0x2b2d31 }],
                 components: [],
@@ -102,11 +94,11 @@ module.exports = {
 
         if (interaction.data.custom_id === "custom_confirm_overwrite") {
             try {
-                await bot.deleteRole(interaction.guildID, data.oldRoleId, "Custom Role Overwrite");
+                await bot.deleteRole(interaction.guildID, data.old_role_id, "Custom Role Overwrite");
             } catch (err) {}
-            // isEdit is true here because we are responding to a button
-            await this.createCustomRole(interaction, bot, data.newName, data.newColor, true);
-            pendingActions.delete(userId);
+
+            await this.createCustomRole(interaction, bot, data.new_name, data.new_color, true);
+            await db.query("DELETE FROM pending_custom_actions WHERE user_id = $1", [userId]);
         }
     },
 
@@ -114,7 +106,6 @@ module.exports = {
         const guild = bot.guilds.get(interaction.guildID);
         const userId = interaction.member.id;
 
-        // Visual Flourish: Use editOriginalMessage since we deferred or responded with buttons
         const statusMsg = { content: "⏳ **Fabricating identity...**", embeds: [], components: [] };
         if (isEdit) await interaction.editParent(statusMsg);
         else await interaction.editOriginalMessage(statusMsg);
@@ -129,6 +120,7 @@ module.exports = {
                 .filter(r => r.color !== 0)
                 .sort((a, b) => b.position - a.position)[0];
 
+            // Hierarchy Check
             if (botHighRole && userHighColoredRole && botHighRole.position <= userHighColoredRole.position) {
                 const errMsg = {
                     content: `❌ **Hierarchy Error:** My highest role (<@&${botHighRole.id}>) is too low. Please move it above your <@&${userHighColoredRole.id}> role.`
@@ -173,7 +165,7 @@ module.exports = {
 
         } catch (err) {
             console.error(err);
-            const errMsg = { content: "❌ **Error:** Creation failed. Check permissions." };
+            const errMsg = { content: "❌ **Error:** Could not create role. Check permissions." };
             if (isEdit) return interaction.editParent(errMsg);
             return interaction.editOriginalMessage(errMsg);
         }
