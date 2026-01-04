@@ -1,6 +1,6 @@
 const Eris = require("eris");
 const { db } = require("../utils/db");
-const { DEFAULT_RULES } = require("../utils/default"); // Fixed path (singular)
+const { DEFAULT_RULES } = require("../utils/default");
 
 // Cache for stateful commands (Role Creation/Assignment/Wizards)
 const pendingActions = new Map();
@@ -8,15 +8,6 @@ const pendingActions = new Map();
 module.exports = {
     name: "interactionCreate",
     async execute(interaction, bot) {
-
-        if (interaction.type === 4) { // 4 = ApplicationCommandAutocomplete
-            const cmd = bot.commands.get(interaction.data.name);
-            if (cmd && cmd.autocomplete) {
-                const choices = await cmd.autocomplete(interaction, bot);
-                return interaction.result(choices); // Send choices back to Discord
-            }
-            return; 
-        }
         
         // ====================================================
         // 1. SLASH COMMANDS (With Security Gatekeeper)
@@ -34,15 +25,16 @@ module.exports = {
                     [interaction.guildID]
                 );
                 
-                // 2. Merge DB rules with BTC-74 Factory Defaults
+                // 2. Merge DB rules with Defaults
                 const dbRules = res.rows[0]?.command_rules || {};
                 const rules = { ...DEFAULT_RULES, ...dbRules };
                 const rule = rules[cmdName];
                 const adminRole = res.rows[0]?.admin_role_id;
 
                 if (rule) {
-                    // A. Wholesale Disable (Bypass for Dashboard to prevent admin lockout)
-                    if (rule.enabled === false && cmdName !== "dashboard") {
+                    // A. Wholesale Disable 
+                    // CRITICAL: Bypass check for 'config' and 'dashboard' to prevent lockout
+                    if (rule.enabled === false && cmdName !== "dashboard" && cmdName !== "config") {
                         return interaction.createMessage({ 
                             content: "🚫 **Disabled:** This command is globally disabled on this server.", 
                             flags: 64 
@@ -115,8 +107,15 @@ module.exports = {
         else if (interaction.data && interaction.data.custom_id) {
             const customId = interaction.data.custom_id;
 
-            // --- ROUTE A: SYSTEM ROUTERS (Public or Permissioned internally) ---
+            // --- ROUTE A: SYSTEM ROUTERS ---
             
+            // Config Overview Pagination (NEW)
+            if (customId.startsWith("config_page_")) {
+                const cmd = bot.commands.get("config");
+                if (cmd) await cmd.handleButton(interaction, bot);
+                return;
+            }
+
             // Dangeru System (Anonymous Posting)
             if (customId.startsWith("dangeru_")) {
                 const cmd = bot.commands.get("dangeru");
@@ -124,9 +123,9 @@ module.exports = {
                 return;
             }
 
-            // Dashboard & Trigger Management
-            if (customId.startsWith("dash_") || customId.startsWith("trig_")) {
-                const cmdName = customId.startsWith("dash_") ? "dashboard" : "trigger";
+            // Dashboard (Legacy) & Trigger Management
+            if (customId.startsWith("dash_") || customId.startsWith("trig_") || customId === "dashboard_select") {
+                const cmdName = customId.startsWith("trig_") ? "trigger" : "dashboard";
                 const cmd = bot.commands.get(cmdName);
                 if (cmd) await cmd.handleInteraction(interaction, bot);
                 return;
@@ -139,7 +138,7 @@ module.exports = {
                 return;
             }
 
-            // --- ROUTE B: SESSION-BASED ACTIONS (Requires active Map data) ---
+            // --- ROUTE B: SESSION-BASED ACTIONS ---
 
             // Custom Role Overwrite
             if (customId.startsWith("custom_")) {
