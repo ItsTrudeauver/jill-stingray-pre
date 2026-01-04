@@ -1,179 +1,159 @@
-const { db } = require("../utils/db");
-const { DEFAULT_RULES } = require("../utils/default");
+const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, PermissionFlagsBits } = require('discord.js');
+const { pool } = require('../utils/db');
+const DEFAULT_RULES = require('../utils/default');
+
+// Modules that cannot be disabled to prevent lockout
+const PROTECTED_MODULES = ['dashboard', 'help'];
 
 module.exports = {
-    name: "dashboard",
-    description: "Open the server configuration console.",
-    options: [],
+    data: new SlashCommandBuilder()
+        .setName('dashboard')
+        .setDescription('Configure which bot modules are enabled in this server.')
+        .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
-    async execute(interaction, bot) {
-        await interaction.acknowledge(); // Prevents "Unknown Interaction" timeout
-        if (!await this.checkAuth(interaction)) return;
-        await this.renderHome(interaction, bot, true);
+    async execute(interaction) {
+        await this.renderDashboard(interaction);
     },
 
-    async handleInteraction(interaction, bot) {
-        // Defer immediately to give Postgres/Discord time to talk
-        await interaction.deferUpdate(); 
-        if (!await this.checkAuth(interaction)) return;
+    async renderDashboard(interaction, update = false) {
+        const client = await pool.connect();
+        try {
+            // 1. Fetch real-time commands from the bot's internal collection
+            // We filter out commands that shouldn't be toggled (protected ones)
+            const botCommands = interaction.client.commands.filter(cmd => 
+                !PROTECTED_MODULES.includes(cmd.data.name)
+            );
 
-        const id = interaction.data.custom_id;
+            // 2. Fetch current settings from DB
+            const res = await client.query("SELECT command_rules FROM guild_settings WHERE guild_id = $1", [interaction.guildId]);
+            let dbRules = res.rows[0]?.command_rules || {};
 
-        if (id === "dash_home") return this.renderHome(interaction, bot, true);
-        
-        // Handle paginated modules: "dash_modules_PAGE"
-        if (id.startsWith("dash_modules_")) {
-            const page = parseInt(id.split("_")[2]) || 0;
-            return this.renderModules(interaction, page);
-        }
-        
-        // Handle toggles: "dash_toggle_PAGE_COMMAND"
-        if (id.startsWith("dash_toggle_")) {
-            const parts = id.split("_");
-            const page = parseInt(parts[2]);
-            const cmd = parts[3];
-            await this.toggleCommand(interaction, cmd, page);
-        }
-    },
-
-    async renderHome(interaction, bot, isUpdate = false) {
-        const guild = bot.guilds.get(interaction.guildID);
-        const botMember = guild.members.get(bot.user.id);
-        
-        let status = "✅ **Optimal**";
-        let color = 0x00ff9d;
-        let tips = [];
-
-        if (!botMember.permissions.has("manageRoles")) {
-            status = "⚠️ **Restricted**";
-            color = 0xffaa00;
-            tips.push("• I am missing the `Manage Roles` permission.");
-        }
-        
-        const botRolePos = this.getBotRolePosition(guild, bot.user.id);
-        if (botRolePos < 2) { 
-            tips.push("• My role is very low. Move 'Jill Stingray' higher in Server Settings.");
-        }
-
-        const embed = {
-            title: "🎛️ Dashboard | System Status",
-            description: `**Service Status:** ${status}\n${tips.join("\n")}`,
-            color: color,
-            fields: [
-                { name: "Current Mode", value: "Standard Protection", inline: true },
-                { name: "Gatekeeper", value: "Active", inline: true }
-            ],
-            thumbnail: { url: bot.user.dynamicAvatarURL("png") }
-        };
-
-        const components = [{
-            type: 1,
-            components: [
-                { type: 2, label: "Overview", style: 1, custom_id: "dash_home", disabled: true },
-                { type: 2, label: "Modules (Switchboard)", style: 1, custom_id: "dash_modules_0" },
-            ]
-        }];
-
-        if (isUpdate) await interaction.editOriginalMessage({ embeds: [embed], components });
-        else await interaction.createMessage({ embeds: [embed], components });
-    },
-
-    async renderModules(interaction, page = 0) {
-        const res = await db.query("SELECT command_rules FROM guild_settings WHERE guild_id = $1", [interaction.guildID]);
-        const rules = { ...DEFAULT_RULES, ...(res.rows[0]?.command_rules || {}) };
-
-        const commands = Object.keys(rules).filter(k => k !== "dashboard");
-        const pageSize = 12; // 3 rows of 4 buttons
-        const totalPages = Math.ceil(commands.length / pageSize);
-        const start = page * pageSize;
-        const pageCommands = commands.slice(start, start + pageSize);
-
-        const rows = [];
-        let currentRow = { type: 1, components: [] };
-
-        pageCommands.forEach((cmd) => {
-            const isEnabled = rules[cmd].enabled;
-            currentRow.components.push({
-                type: 2,
-                style: isEnabled ? 3 : 4,
-                label: cmd.toUpperCase(),
-                custom_id: `dash_toggle_${page}_${cmd}`, // Include page so we return to it after toggle
-                emoji: isEnabled ? { name: "✔️" } : { name: "✖️" }
+            // 3. Prepare the rules object
+            // If a command is in the bot but not in DB (newly added), we treat it as enabled by default (or check DEFAULT_RULES)
+            // If a command is in DB but removed from bot, we ignore it.
+            const currentRules = { ...DEFAULT_RULES };
+            
+            // Sync DB rules
+            Object.keys(dbRules).forEach(key => {
+                if (currentRules[key]) {
+                    currentRules[key].enabled = dbRules[key].enabled;
+                }
             });
 
-            if (currentRow.components.length >= 4) {
-                rows.push(currentRow);
-                currentRow = { type: 1, components: [] };
-            }
-        });
-        if (currentRow.components.length > 0) rows.push(currentRow);
+            // 4. Build Options Dynamically
+            // We map over the ACTUAL loaded commands, not a hardcoded list.
+            const options = botCommands.map(cmd => {
+                const name = cmd.data.name;
+                
+                // Check if enabled (Default to true if not found in rules)
+                const isEnabled = currentRules[name] ? currentRules[name].enabled : true;
+                
+                // Get description directly from the command file
+                let desc = cmd.data.description || 'No description provided.';
+                
+                // Discord limits descriptions to 100 chars
+                if (desc.length > 100) desc = desc.substring(0, 97) + '...';
 
-        // Navigation Row
-        rows.push({
-            type: 1, 
-            components: [
-                { type: 2, label: "« Previous", style: 2, custom_id: `dash_modules_${page - 1}`, disabled: page === 0 },
-                { type: 2, label: "Next »", style: 2, custom_id: `dash_modules_${page + 1}`, disabled: page >= totalPages - 1 },
-                { type: 2, label: "Home", style: 2, custom_id: "dash_home" }
-            ]
-        });
+                return new StringSelectMenuOptionBuilder()
+                    .setLabel(name.charAt(0).toUpperCase() + name.slice(1))
+                    .setDescription(desc)
+                    .setValue(name)
+                    .setEmoji(isEnabled ? '🟢' : '🔴')
+                    .setDefault(isEnabled);
+            });
 
-        const embed = {
-            title: "🎛️ Dashboard | Modules",
-            description: `Page ${page + 1} of ${totalPages}\nClick to toggle commands ON/OFF.`,
-            color: 0x2b2d31
-        };
+            // Sort options alphabetically for easier finding
+            options.sort((a, b) => a.data.label.localeCompare(b.data.label));
 
-        await interaction.editOriginalMessage({ embeds: [embed], components: rows });
-    },
+            // Handle Discord's 25-option limit for a single menu
+            // (If you have >25 commands, we might need a second page, but this slices the top 25)
+            const safeOptions = options.slice(0, 25);
 
-    async toggleCommand(interaction, cmd, page) {
-        // Fetch current rules from DB
-        const res = await db.query("SELECT command_rules FROM guild_settings WHERE guild_id = $1", [interaction.guildID]);
-        
-        // Prepare the rules object (use DB rules or empty object if missing)
-        let rules = res.rows[0]?.command_rules || {};
+            const selectMenu = new StringSelectMenuBuilder()
+                .setCustomId('dashboard_select')
+                .setPlaceholder('Select active modules...')
+                .setMinValues(0)
+                .setMaxValues(safeOptions.length)
+                .addOptions(safeOptions);
 
-        // Initialize the specific command rule from defaults if it's missing in the custom rules
-        if (!rules[cmd]) rules[cmd] = { ...DEFAULT_RULES[cmd] };
+            const row = new ActionRowBuilder().addComponents(selectMenu);
 
-        // Toggle the enabled state
-        rules[cmd].enabled = !rules[cmd].enabled;
-        
-        const rulesJson = JSON.stringify(rules);
+            const embed = new EmbedBuilder()
+                .setColor('#2b2d31')
+                .setTitle('🎛️ Dynamic Server Dashboard')
+                .setDescription('Select modules to enable/disable.\nDescriptions are pulled automatically from command files.')
+                .setFooter({ text: `Total Modules: ${botCommands.size} | Showing: ${safeOptions.length}` });
 
-        // CHECK: If the row didn't exist (res.rows.length === 0), we must INSERT.
-        // Otherwise, we UPDATE.
-        if (res.rows.length === 0) {
-            await db.query(`INSERT INTO guild_settings (guild_id, command_rules) VALUES ($1, $2)`, 
-                [interaction.guildID, rulesJson]);
-        } else {
-            await db.query(`UPDATE guild_settings SET command_rules = $2 WHERE guild_id = $1`, 
-                [interaction.guildID, rulesJson]);
+            const payload = { embeds: [embed], components: [row] };
+
+            if (update) await interaction.update(payload);
+            else await interaction.reply(payload);
+
+        } catch (err) {
+            console.error(err);
+            const errPayload = { content: '❌ Error loading dashboard.', ephemeral: true };
+            if (update) await interaction.followUp(errPayload);
+            else await interaction.reply(errPayload);
+        } finally {
+            client.release();
         }
-
-        // Re-render the dashboard to show the new state
-        await this.renderModules(interaction, page);
     },
 
-    async checkAuth(interaction) {
-        if (interaction.member.permissions.has("administrator")) return true;
-        const res = await db.query("SELECT admin_role_id FROM guild_settings WHERE guild_id = $1", [interaction.guildID]);
-        const roleId = res.rows[0]?.admin_role_id;
-        if (roleId && interaction.member.roles.includes(roleId)) return true;
+    async handleSelect(interaction) {
+        if (interaction.customId !== 'dashboard_select') return;
 
-        await interaction.createMessage({ content: "🔒 Access Denied.", flags: 64 });
-        return false;
-    },
+        const selectedModules = interaction.values; 
+        const client = await pool.connect();
 
-    getBotRolePosition(guild, botId) {
-        const member = guild.members.get(botId);
-        if (!member || member.roles.length === 0) return 0;
-        let max = 0;
-        member.roles.forEach(rId => {
-            const r = guild.roles.get(rId);
-            if (r && r.position > max) max = r.position;
-        });
-        return max;
+        try {
+            // Get current DB state
+            const res = await client.query("SELECT command_rules FROM guild_settings WHERE guild_id = $1", [interaction.guildId]);
+            let rules = res.rows[0]?.command_rules || {};
+
+            // We need to look at ALL commands available in the menu to decide what was unchecked.
+            // (Only commands visible in the menu can be toggled here)
+            const botCommands = interaction.client.commands.filter(cmd => 
+                !PROTECTED_MODULES.includes(cmd.data.name)
+            );
+            
+            // Sort them exactly as we did in render to ensure we are matching the slice (if >25)
+            // Note: If you have >25 commands, this simple slice logic might miss saving hidden ones. 
+            // For <25 commands, this is perfectly safe.
+            const sortedCommands = [...botCommands.values()].sort((a, b) => 
+                a.data.name.localeCompare(b.data.name)
+            );
+            const visibleCommands = sortedCommands.slice(0, 25);
+
+            // Update rules
+            visibleCommands.forEach(cmd => {
+                const name = cmd.data.name;
+                
+                // Init rule if missing
+                if (!rules[name]) rules[name] = { enabled: true, ...DEFAULT_RULES[name] };
+
+                // If it's in the selection, it's ENABLED. If not, it's DISABLED.
+                if (selectedModules.includes(name)) {
+                    rules[name].enabled = true;
+                } else {
+                    rules[name].enabled = false;
+                }
+            });
+
+            // Save to DB
+            const rulesJson = JSON.stringify(rules);
+            if (res.rowCount === 0) {
+                await client.query("INSERT INTO guild_settings (guild_id, command_rules) VALUES ($1, $2)", [interaction.guildId, rulesJson]);
+            } else {
+                await client.query("UPDATE guild_settings SET command_rules = $2 WHERE guild_id = $1", [interaction.guildId, rulesJson]);
+            }
+
+            await this.renderDashboard(interaction, true);
+
+        } catch (err) {
+            console.error(err);
+            await interaction.reply({ content: 'Failed to save settings.', ephemeral: true });
+        } finally {
+            client.release();
+        }
     }
 };
