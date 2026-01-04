@@ -9,11 +9,9 @@ module.exports = {
     default_member_permissions: "32", // Manage Guild
 
     // --- 1. Main Slash Command ---
-    async execute(interaction) {
+    async execute(interaction, bot) { // Added 'bot' param
         try {
-            // Generate the dashboard view
-            const payload = await this.getDashboardPayload(interaction);
-            // Send it as a new message
+            const payload = await this.getDashboardPayload(interaction, bot);
             await interaction.createMessage(payload);
         } catch (err) {
             console.error(err);
@@ -21,25 +19,27 @@ module.exports = {
         }
     },
 
-    // --- 2. Dropdown Interaction Handler ---
-    async handleSelect(interaction) {
+    // --- 2. Interaction Handler (Renamed from handleSelect) ---
+    async handleInteraction(interaction, bot) {
+        // Double check it's the right interaction
+        if (interaction.data.custom_id !== 'dashboard_select') return;
+
         const client = await db.connect();
         try {
-            const selectedModules = interaction.data.values; // What the user checked
+            const selectedModules = interaction.data.values; 
             const guildID = interaction.guildID;
 
             // A. Fetch current rules
             const res = await client.query("SELECT command_rules FROM guild_settings WHERE guild_id = $1", [guildID]);
             let rules = res.rows[0]?.command_rules || {};
 
-            // B. Determine available commands (to know what was UNCHECKED)
-            const botInstance = interaction.channel?.client || interaction.client;
+            // B. Determine available commands
             // Filter commands exactly like we do in the view
-            const validCommands = Array.from(botInstance.commands.values()).filter(cmd => 
+            const validCommands = Array.from(bot.commands.values()).filter(cmd => 
                 !PROTECTED_MODULES.includes(cmd.name)
             );
             
-            // Sort to match the menu order (Crucial for the slice logic)
+            // Sort to match the menu order
             const sortedCommandNames = validCommands.map(c => c.name).sort();
             
             // Only update the commands that were actually visible in the menu (Top 25)
@@ -47,10 +47,8 @@ module.exports = {
 
             // C. Update Logic
             visibleCommandNames.forEach(name => {
-                // Ensure default exists
                 if (!rules[name]) rules[name] = { enabled: true, ...DEFAULT_RULES[name] };
 
-                // If name is in the selection -> ENABLED. If not -> DISABLED.
                 if (selectedModules.includes(name)) {
                     rules[name].enabled = true;
                 } else {
@@ -67,15 +65,13 @@ module.exports = {
             }
 
             // E. Refresh the Dashboard View
-            // We pass 'client' to reuse the DB connection we already have open
-            const payload = await this.getDashboardPayload(interaction, client);
+            const payload = await this.getDashboardPayload(interaction, bot, client);
             
-            // USE editParent: This acknowledges the click AND updates the message instantly.
+            // Acknowledge + Update in one go
             await interaction.editParent(payload);
 
         } catch (err) {
             console.error(err);
-            // If something broke, try to tell the user ephemerally
             try {
                 await interaction.createMessage({ content: "❌ Failed to update settings.", flags: 64 });
             } catch (e) { }
@@ -84,12 +80,11 @@ module.exports = {
         }
     },
 
-    // --- 3. View Generator (Reusable) ---
-    async getDashboardPayload(interaction, externalDbClient = null) {
+    // --- 3. View Generator ---
+    async getDashboardPayload(interaction, bot, externalDbClient = null) {
         let client;
         let shouldRelease = false;
 
-        // Reuse DB connection if provided, otherwise open a new one
         if (externalDbClient) {
             client = externalDbClient;
         } else {
@@ -98,10 +93,8 @@ module.exports = {
         }
 
         try {
-            const botInstance = interaction.channel?.client || interaction.client;
-            
             // 1. Get Commands
-            const validCommands = Array.from(botInstance.commands.values()).filter(cmd => 
+            const validCommands = Array.from(bot.commands.values()).filter(cmd => 
                 !PROTECTED_MODULES.includes(cmd.name)
             );
 
@@ -130,7 +123,7 @@ module.exports = {
                     value: name,
                     description: desc,
                     emoji: { name: isEnabled ? '🟢' : '🔴' },
-                    default: isEnabled // This checks the box if enabled
+                    default: isEnabled
                 };
             });
 
@@ -138,7 +131,6 @@ module.exports = {
             options.sort((a, b) => a.label.localeCompare(b.label));
             const safeOptions = options.slice(0, 25);
 
-            // 5. Return JSON Payload
             return {
                 embeds: [{
                     title: '🎛️ Dynamic Server Dashboard',
@@ -150,7 +142,7 @@ module.exports = {
                     type: 1, 
                     components: [{
                         type: 3, // String Select Menu
-                        custom_id: 'dashboard_select',
+                        custom_id: 'dashboard_select', // Starts with 'dash_'
                         placeholder: 'Select active modules...',
                         min_values: 0,
                         max_values: safeOptions.length,
