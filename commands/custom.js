@@ -10,25 +10,19 @@ module.exports = {
         {
             name: "role",
             description: "Create or replace your personal custom role.",
-            type: 1, // SUB_COMMAND
+            type: 1, 
             options: [
-                {
-                    name: "name",
-                    description: "The name of your role.",
-                    type: 3, // String
-                    required: true,
-                },
-                {
-                    name: "hex",
-                    description: "The color hex code (e.g. FF0055).",
-                    type: 3, // String
-                    required: true,
-                },
+                { name: "name", description: "The name of your role.", type: 3, required: true },
+                { name: "hex", description: "The color hex code (e.g. FF0055).", type: 3, required: true },
             ],
         },
     ],
 
     async execute(interaction, bot) {
+        // 1. IMMEDIATELY DEFER to prevent "Unknown Interaction" (Timeout)
+        // We use ephemeral (64) so the "Thinking..." state is private if you prefer.
+        await interaction.defer(); 
+
         const sub = interaction.data.options[0];
         if (sub.name !== "role") return;
 
@@ -37,16 +31,15 @@ module.exports = {
 
         // Validate Hex
         if (!/^[0-9A-F]{6}$/i.test(hex)) {
-            return interaction.createMessage({
+            return interaction.editOriginalMessage({
                 content: "❌ **Invalid Color.** Please use a valid 6-digit Hex code (e.g., `00FF00`).",
-                flags: 64,
             });
         }
         const colorInt = parseInt(hex, 16);
         const userId = interaction.member.id;
         const guildId = interaction.guildID;
 
-        // 1. Check DB for existing role
+        // 2. Check DB
         const res = await db.query(
             "SELECT role_id FROM custom_roles WHERE guild_id = $1 AND user_id = $2",
             [guildId, userId]
@@ -65,15 +58,13 @@ module.exports = {
                     oldRoleId: existingRoleEntry.role_id
                 });
 
-                return interaction.createMessage({
+                return interaction.editOriginalMessage({
                     embeds: [
                         {
                             title: "Identity Conflict",
                             description: "You already have a registered custom role.\nDo you want to **delete** the old one and create this new one?",
                             color: 0xffa500,
-                            thumbnail: {
-                                url: interaction.member.avatarURL || interaction.member.user.avatarURL,
-                            },
+                            thumbnail: { url: interaction.member.avatarURL || interaction.member.user.avatarURL },
                         },
                     ],
                     components: [
@@ -91,7 +82,7 @@ module.exports = {
             }
         }
 
-        // 2. Create New Role
+        // 3. Create New Role (Fresh)
         await this.createCustomRole(interaction, bot, name, colorInt, false);
     },
 
@@ -99,7 +90,7 @@ module.exports = {
         const userId = interaction.member.id;
         const data = pendingActions.get(userId);
         
-        if (!data) return interaction.createMessage({ content: "❌ Session expired or invalid.", flags: 64 });
+        if (!data) return interaction.createMessage({ content: "❌ Session expired.", flags: 64 });
 
         if (interaction.data.custom_id === "custom_cancel") {
             pendingActions.delete(userId);
@@ -113,6 +104,7 @@ module.exports = {
             try {
                 await bot.deleteRole(interaction.guildID, data.oldRoleId, "Custom Role Overwrite");
             } catch (err) {}
+            // isEdit is true here because we are responding to a button
             await this.createCustomRole(interaction, bot, data.newName, data.newColor, true);
             pendingActions.delete(userId);
         }
@@ -122,18 +114,16 @@ module.exports = {
         const guild = bot.guilds.get(interaction.guildID);
         const userId = interaction.member.id;
 
-        // RESTORED: Visual Flourish (Status Message)
-        const statusMsg = { content: "⏳ **Fabricating identity...**", components: [] };
+        // Visual Flourish: Use editOriginalMessage since we deferred or responded with buttons
+        const statusMsg = { content: "⏳ **Fabricating identity...**", embeds: [], components: [] };
         if (isEdit) await interaction.editParent(statusMsg);
-        else await interaction.createMessage(statusMsg);
+        else await interaction.editOriginalMessage(statusMsg);
 
         try {
-            // RESTORED: Reliable REST-based Hoisting
             const botMember = await guild.getRESTMember(bot.user.id);
             const botRoles = botMember.roles.map(id => guild.roles.get(id)).filter(r => r);
             const botHighRole = botRoles.sort((a, b) => b.position - a.position)[0];
 
-            // NEW: Hierarchy Check
             const userRoles = interaction.member.roles.map(id => guild.roles.get(id)).filter(r => r);
             const userHighColoredRole = userRoles
                 .filter(r => r.color !== 0)
@@ -141,13 +131,12 @@ module.exports = {
 
             if (botHighRole && userHighColoredRole && botHighRole.position <= userHighColoredRole.position) {
                 const errMsg = {
-                    content: `❌ **Hierarchy Error:** My highest role (<@&${botHighRole.id}>) is too low. Please contact an administrator to move it above your <@&${userHighColoredRole.id}> role so I can manage your identity.`
+                    content: `❌ **Hierarchy Error:** My highest role (<@&${botHighRole.id}>) is too low. Please move it above your <@&${userHighColoredRole.id}> role.`
                 };
                 if (isEdit) return interaction.editParent(errMsg);
                 return interaction.editOriginalMessage(errMsg);
             }
 
-            // B. Create Role
             const newRole = await guild.createRole({
                 name: name,
                 color: color,
@@ -156,30 +145,23 @@ module.exports = {
                 mentionable: false,
             }, `Custom Role for ${interaction.member.username}`);
 
-            // C. Move Role (Hoist) & Assign
             let targetPos = botHighRole ? botHighRole.position - 1 : 1;
             if (targetPos < 1) targetPos = 1;
 
-            try {
-                await newRole.editPosition(targetPos);
-            } catch (err) {
-                console.warn("Could not hoist role.", err);
-            }
+            try { await newRole.editPosition(targetPos); } catch (err) {}
             await guild.addMemberRole(userId, newRole.id, "Custom Role Assignment");
 
-            // D. Update Database
             if (isEdit) {
                 await db.query("UPDATE custom_roles SET role_id = $1 WHERE guild_id = $2 AND user_id = $3", [newRole.id, guild.id, userId]);
             } else {
                 await db.query("INSERT INTO custom_roles (guild_id, user_id, role_id) VALUES ($1, $2, $3)", [guild.id, userId, newRole.id]);
             }
 
-            // E. Success Message
             const payload = {
                 content: "",
                 embeds: [{
                     title: "Identity Fabricated",
-                    description: `**Role:** <@&${newRole.id}>\n**Hex:** #${color.toString(16).toUpperCase().padStart(6, "0")}\n\nThis role has been assigned to you and hoisted to maximum available visibility.`,
+                    description: `**Role:** <@&${newRole.id}>\n**Hex:** #${color.toString(16).toUpperCase().padStart(6, "0")}\n\nHoisted to maximum available visibility.`,
                     color: color,
                     thumbnail: { url: interaction.member.avatarURL || interaction.member.user.avatarURL },
                     footer: { text: "Use /custom role again to change it." },
@@ -191,7 +173,7 @@ module.exports = {
 
         } catch (err) {
             console.error(err);
-            const errMsg = { content: "❌ **Error:** Could not create role. Check permissions or role limits." };
+            const errMsg = { content: "❌ **Error:** Creation failed. Check permissions." };
             if (isEdit) return interaction.editParent(errMsg);
             return interaction.editOriginalMessage(errMsg);
         }

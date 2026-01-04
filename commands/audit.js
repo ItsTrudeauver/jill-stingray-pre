@@ -12,7 +12,7 @@ module.exports = {
 
         // 2. SECURITY CHECK
         if (!await Permissions.check(interaction, 'audit')) return;
-        await interaction.acknowledge();
+        
 
         // Session State
         pendingActions.set(interaction.member.id, {
