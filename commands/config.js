@@ -1,15 +1,11 @@
 const { db } = require('../utils/db');
 const Permissions = require("../utils/permissions");
-// Import the raw rules list
 const { PERMISSION_LEVELS } = require("../utils/permissions");
 const { DEFAULT_RULES } = require('../utils/default'); 
 
-
-// --- CONSTANTS ---
 const PAGE_SIZE = 10;
 const BANNER_URL = "https://images.steamusercontent.com/ugc/790863751169443352/AAC9980582D8B930F8B8136B1CDBEAD1B2766C19/?imw=1024&imh=576&ima=fit&impolicy=Letterbox&imcolor=%23000000&letterbox=true";
 
-// Map Discord Bitfield Strings to Human Readable Names
 const PERM_MAP = {
     "8": "Administrator",
     "administrator": "Administrator",
@@ -29,7 +25,6 @@ const PERM_MAP = {
     "BOT_OWNER": "Developer Only"
 };
 
-// --- HELPERS ---
 const getCommandNames = (bot) => {
     return Array.from(bot.commands.values())
         .map(c => c.name)
@@ -38,10 +33,8 @@ const getCommandNames = (bot) => {
 
 const formatPerm = (perm) => {
     if (!perm || perm === 'null') return "Everyone";
-    // If it's a known bitfield (e.g., "8"), return the name
     if (PERM_MAP[perm]) return PERM_MAP[perm];
-    // Otherwise, clean up camelCase (e.g. ManageGuild)
-    return perm.replace(/([A-Z])/g, ' $1').trim();
+    return perm.replace(/([A-Z])/g, ' $1').trim().replace(/^./, str => str.toUpperCase());
 };
 
 module.exports = {
@@ -81,12 +74,12 @@ module.exports = {
                     required: true,
                     choices: [
                         { name: 'Reset to Default', value: 'DEFAULT' },
-                        { name: 'Administrator', value: 'Administrator' },
-                        { name: 'Manage Server', value: 'ManageGuild' },
-                        { name: 'Manage Roles', value: 'ManageRoles' },
-                        { name: 'Manage Messages', value: 'ManageMessages' },
-                        { name: 'Kick Members', value: 'KickMembers' },
-                        { name: 'Ban Members', value: 'BanMembers' },
+                        { name: 'Administrator', value: 'administrator' },
+                        { name: 'Manage Server', value: 'manageGuild' },
+                        { name: 'Manage Roles', value: 'manageRoles' },
+                        { name: 'Manage Messages', value: 'manageMessages' },
+                        { name: 'Kick Members', value: 'kickMembers' },
+                        { name: 'Ban Members', value: 'banMembers' },
                         { name: 'Everyone (None)', value: 'null' }
                     ]
                 }
@@ -104,8 +97,9 @@ module.exports = {
 
     async execute(interaction, bot) {
         if (!await Permissions.check(interaction, 'config')) return;
+        
         const sub = interaction.data.options[0];
-        const args = sub.options || [];
+        const args = sub.options || []; 
         const getVal = (n) => args.find(o => o.name === n)?.value;
         const commandName = getVal('command');
 
@@ -133,10 +127,9 @@ module.exports = {
                 }
             }
 
-            // --- EDITING SETTINGS ---
+            // --- EDITING ---
             if (!bot.commands.has(commandName)) return interaction.createMessage({ content: "❌ Command not found.", flags: 64 });
             
-            // Initialize if missing
             if (!rules[commandName]) rules[commandName] = {};
             const rule = rules[commandName];
 
@@ -149,36 +142,37 @@ module.exports = {
             } 
             else if (sub.name === 'channel') {
                 const channelID = getVal('channel');
-                if (!rule.allowed_channels) rule.allowed_channels = [];
+                // FIX 1: Use 'allow_channels' (matches Gatekeeper)
+                if (!rule.allow_channels) rule.allow_channels = [];
 
                 if (channelID) {
-                    if (rule.allowed_channels.includes(channelID)) {
-                        rule.allowed_channels = rule.allowed_channels.filter(c => c !== channelID);
+                    if (rule.allow_channels.includes(channelID)) {
+                        rule.allow_channels = rule.allow_channels.filter(c => c !== channelID);
                         responseText = `✅ **${commandName}** is no longer restricted to <#${channelID}>.`;
                     } else {
-                        rule.allowed_channels.push(channelID);
+                        rule.allow_channels.push(channelID);
                         responseText = `✅ **${commandName}** is now allowed in <#${channelID}>.`;
                     }
                 } else {
-                    rule.allowed_channels = [];
+                    rule.allow_channels = [];
                     responseText = `✅ **${commandName}** is now allowed in **ALL** channels.`;
                 }
             } 
             else if (sub.name === 'permission') {
                 const level = getVal('level');
                 if (level === 'DEFAULT') {
-                    delete rule.required_perm;
+                    // FIX 2: Use 'min_perm' (matches Gatekeeper)
+                    delete rule.min_perm;
                     responseText = `✅ **${commandName}** permission reset to default.`;
                 } else if (level === 'null') {
-                    rule.required_perm = 'null';
+                    rule.min_perm = 'null';
                     responseText = `✅ **${commandName}** is now available to **everyone**.`;
                 } else {
-                    rule.required_perm = level;
+                    rule.min_perm = level;
                     responseText = `✅ **${commandName}** now requires **${formatPerm(level)}**.`;
                 }
             }
 
-            // Save
             const rulesJson = JSON.stringify(rules);
             if (res.rowCount === 0) {
                 await client.query("INSERT INTO guild_settings (guild_id, command_rules) VALUES ($1, $2)", [interaction.guildID, rulesJson]);
@@ -217,14 +211,21 @@ module.exports = {
     },
 
     async autocomplete(interaction, bot) {
-        const focused = interaction.data.options[0].options.find(o => o.focused);
+        const sub = interaction.data.options[0];
+        const options = sub.options || []; 
+        
+        const focused = options.find(o => o.focused);
+        if (!focused) return []; 
+
         const input = focused.value.toLowerCase();
         const allCommands = getCommandNames(bot);
-        const filtered = allCommands.filter(name => name.toLowerCase().startsWith(input));
-        return filtered.slice(0, 25).map(name => ({ name: name, value: name }));
+        
+        const filtered = input 
+            ? allCommands.filter(name => name.toLowerCase().startsWith(input))
+            : allCommands;
+        
+        return interaction.result(filtered.slice(0, 25).map(name => ({ name: name, value: name })));
     },
-
-    // --- SMART VIEW GENERATORS ---
 
     getEffectiveSettings(cmdName, rules, bot) {
         const cmdObj = bot.commands.get(cmdName);
@@ -232,23 +233,22 @@ module.exports = {
         const defRule = DEFAULT_RULES[cmdName] || {}; 
 
         const enabled = dbRule.hasOwnProperty('enabled') ? dbRule.enabled : (defRule.enabled ?? true);
-        const channels = dbRule.allowed_channels || defRule.allowed_channels || [];
+        
+        // FIX 3: Read 'allow_channels' consistently
+        const channels = dbRule.allow_channels || defRule.allow_channels || [];
 
         let perm = null;
         
-        // 1. DB Override (Server Settings)
-        if (dbRule.hasOwnProperty('required_perm')) {
-            perm = dbRule.required_perm;
+        // FIX 4: Check for 'min_perm'
+        if (dbRule.hasOwnProperty('min_perm')) {
+            perm = dbRule.min_perm;
         } 
-        // 2. Permission Handler (The hardcoded source of truth)
         else if (PERMISSION_LEVELS[cmdName]) {
             perm = PERMISSION_LEVELS[cmdName];
         }
-        // 3. Defaults File (Legacy fallback)
         else if (defRule.hasOwnProperty('min_perm')) {
             perm = defRule.min_perm;
         }
-        // 4. Native Command Property
         else if (cmdObj && cmdObj.default_member_permissions) {
             perm = cmdObj.default_member_permissions;
         }
@@ -258,7 +258,6 @@ module.exports = {
 
     generateSingleOverview(cmdName, rules, bot) {
         const { enabled, channels, perm } = this.getEffectiveSettings(cmdName, rules, bot);
-
         const statusIcon = enabled ? '🟢' : '🔴';
         const channelText = channels.length > 0 ? channels.map(id => `<#${id}>`).join(', ') : "🌐 Global";
 
@@ -287,11 +286,9 @@ module.exports = {
 
         const lines = currentSlice.map(cmd => {
             const { enabled, channels, perm } = this.getEffectiveSettings(cmd, rules, bot);
-
             const icon = enabled ? '🟢' : '🔴';
-            const permShort = formatPerm(perm); // Now correctly returns "Manage Roles" etc.
+            const permShort = formatPerm(perm); 
             const chanShort = channels.length > 0 ? '#Limit' : 'Global';
-
             return `${icon} **${cmd}**: ${permShort} | ${chanShort}`;
         });
 
