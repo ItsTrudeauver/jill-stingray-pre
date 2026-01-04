@@ -1,6 +1,9 @@
 const { db } = require('../utils/db');
 const Permissions = require("../utils/permissions");
-const { DEFAULT_RULES } = require('../utils/default');
+// Import the raw rules list
+const { PERMISSION_LEVELS } = require("../utils/permissions");
+const { DEFAULT_RULES } = require('../utils/default'); 
+
 
 // --- CONSTANTS ---
 const PAGE_SIZE = 10;
@@ -9,12 +12,21 @@ const BANNER_URL = "https://images.steamusercontent.com/ugc/790863751169443352/A
 // Map Discord Bitfield Strings to Human Readable Names
 const PERM_MAP = {
     "8": "Administrator",
-    "32": "Manage Guild",
+    "administrator": "Administrator",
+    "32": "Manage Server",
+    "manageGuild": "Manage Server",
     "268435456": "Manage Roles",
+    "manageRoles": "Manage Roles",
+    "manageEmojisAndStickers": "Manage Emojis",
     "8192": "Manage Messages",
+    "manageMessages": "Manage Messages",
     "2": "Kick Members",
+    "kickMembers": "Kick Members",
     "4": "Ban Members",
-    "0": "Everyone"
+    "banMembers": "Ban Members",
+    "0": "Everyone",
+    "everyone": "Everyone",
+    "BOT_OWNER": "Developer Only"
 };
 
 // --- HELPERS ---
@@ -217,25 +229,27 @@ module.exports = {
     getEffectiveSettings(cmdName, rules, bot) {
         const cmdObj = bot.commands.get(cmdName);
         const dbRule = rules[cmdName] || {};
-        const defRule = DEFAULT_RULES[cmdName] || {};
+        const defRule = DEFAULT_RULES[cmdName] || {}; 
 
-        // 1. ENABLED
         const enabled = dbRule.hasOwnProperty('enabled') ? dbRule.enabled : (defRule.enabled ?? true);
-        
-        // 2. CHANNELS
         const channels = dbRule.allowed_channels || defRule.allowed_channels || [];
 
-        // 3. PERMISSIONS (The Fix)
         let perm = null;
-
+        
+        // 1. DB Override (Server Settings)
         if (dbRule.hasOwnProperty('required_perm')) {
-            // DB Override
             perm = dbRule.required_perm;
-        } else if (defRule.hasOwnProperty('required_perm')) {
-            // Defaults File
-            perm = defRule.required_perm;
-        } else if (cmdObj && cmdObj.default_member_permissions) {
-            // Native Command File (e.g. "32" for Manage Guild)
+        } 
+        // 2. Permission Handler (The hardcoded source of truth)
+        else if (PERMISSION_LEVELS[cmdName]) {
+            perm = PERMISSION_LEVELS[cmdName];
+        }
+        // 3. Defaults File (Legacy fallback)
+        else if (defRule.hasOwnProperty('min_perm')) {
+            perm = defRule.min_perm;
+        }
+        // 4. Native Command Property
+        else if (cmdObj && cmdObj.default_member_permissions) {
             perm = cmdObj.default_member_permissions;
         }
 

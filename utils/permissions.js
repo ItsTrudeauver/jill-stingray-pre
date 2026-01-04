@@ -18,6 +18,7 @@ const PERMISSION_LEVELS = {
 const BOT_OWNER_ID = "541882021434359811"; // Your ID from dangeru.js
 
 module.exports = {
+    PERMISSION_LEVELS,
     /**
      * Checks if the user has permission to run the command.
      * Returns TRUE if allowed, or sends a rejection message and returns FALSE.
