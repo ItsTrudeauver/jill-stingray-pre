@@ -112,7 +112,7 @@ module.exports = {
     async execute(interaction, bot) {
         const sub = interaction.data.options[0];
         const drinkName = sub.options[0].value;
-        logDrink(interaction.member.id, drinkName);
+        logDrink(interaction.member.id, interaction.guildID, drinkName);
 
         await interaction.createMessage({
             content: `**[Order Received]** One ${drinkName}, coming up...`,

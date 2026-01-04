@@ -1,16 +1,22 @@
 const { Pool } = require("pg");
 
-// Connect using the environment variable provided by Koyeb/Render
 const db = new Pool({
     connectionString: process.env.DATABASE_URL,
-    ssl: {
-        rejectUnauthorized: false // Required for most cloud databases (Koyeb/Heroku/Render)
-    }
+    ssl: { rejectUnauthorized: false }
 });
 
 async function init() {
     try {
-        // 1. Activity Tracker
+
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS guild_settings (
+                guild_id TEXT PRIMARY KEY,
+                admin_role_id TEXT,
+                log_channel_id TEXT,
+                command_rules JSONB DEFAULT '{}'::jsonb
+            );
+        `);
+        
         await db.query(`
             CREATE TABLE IF NOT EXISTS activity (
                 guild_id TEXT,
@@ -21,7 +27,6 @@ async function init() {
             );
         `);
 
-        // 2. Patron System (Note: last_ordered is BIGINT for Date.now())
         await db.query(`
             CREATE TABLE IF NOT EXISTS drinks (
                 user_id TEXT,
@@ -33,7 +38,6 @@ async function init() {
             );
         `);
 
-        // 3. Emoji Tracker
         await db.query(`
             CREATE TABLE IF NOT EXISTS emojis (
                 guild_id TEXT,
@@ -46,7 +50,6 @@ async function init() {
             );
         `);
 
-        // 4. Custom Roles
         await db.query(`
             CREATE TABLE IF NOT EXISTS custom_roles (
                 guild_id TEXT,
@@ -56,7 +59,6 @@ async function init() {
             );
         `);
 
-        // 5. Dangeru Posts (SERIAL makes it auto-increment)
         await db.query(`
             CREATE TABLE IF NOT EXISTS dangeru_posts (
                 id SERIAL PRIMARY KEY,
@@ -67,7 +69,6 @@ async function init() {
             );
         `);
 
-        // 6. Alias History
         await db.query(`
             CREATE TABLE IF NOT EXISTS aliases (
                 id SERIAL PRIMARY KEY,
@@ -78,6 +79,20 @@ async function init() {
                 timestamp BIGINT
             );
         `);
+
+        // --- PREVIOUSLY ADDED: TRIGGERS ---
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS triggers (
+                id SERIAL PRIMARY KEY,
+                guild_id TEXT,
+                keyword TEXT,
+                response TEXT,
+                is_image BOOLEAN DEFAULT FALSE,
+                case_sensitive BOOLEAN DEFAULT FALSE,
+                UNIQUE(guild_id, keyword)
+            );
+        `);
+
 
         console.log("[DB] PostgreSQL Connected & Synced.");
     } catch (err) {
