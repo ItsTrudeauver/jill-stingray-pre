@@ -1,77 +1,56 @@
-const { getPatronStats } = require("../utils/patronSystem.js");
-const fs = require("fs");
-const path = require("path");
+const { db } = require("../utils/db");
 
 module.exports = {
     name: "regulars",
     description: "View the bar's top patrons.",
 
     async execute(interaction, bot) {
-        // 1. Read Raw Data directly (since patronSystem helper might just get one user)
-        const dataPath = path.join(__dirname, "../data/patrons.json");
-        let rawData = {};
-        try {
-            rawData = JSON.parse(fs.readFileSync(dataPath));
-        } catch (e) {
-            return interaction.createMessage(
-                "The patron list is currently empty.",
-            );
+        // 1. Get Top 10 Patrons (Sum of all drinks)
+        const topRes = await db.query(`
+            SELECT user_id, SUM(count) as total_orders
+            FROM drinks
+            WHERE guild_id = $1
+            GROUP BY user_id
+            ORDER BY total_orders DESC
+            LIMIT 10
+        `, [interaction.guildID]);
+
+        if (topRes.rows.length === 0) {
+            return interaction.createMessage("No drinks served yet. Be the first!");
         }
 
-        // 2. Convert to Array and Sort
-        // Structure: [ [id, {totalOrders: 5...}], ... ]
-        const sortedPatrons = Object.entries(rawData)
-            .sort((a, b) => b[1].totalOrders - a[1].totalOrders)
-            .slice(0, 10); // Top 10
-
-        if (sortedPatrons.length === 0) {
-            return interaction.createMessage(
-                "No drinks served yet. Be the first!",
-            );
-        }
-
-        // 3. Build the Leaderboard String
+        // 2. Helper to find favorites
+        // We have to loop, but for 10 users it's instant.
         let description = "";
         let rank = 1;
+        const medals = ["🥇", "🥈", "🥉"];
 
-        // We use a predefined medal list for the top 3
-        const medals = ["👑", "🥈", "🥉"];
-
-        for (const [id, stats] of sortedPatrons) {
+        for (const p of topRes.rows) {
             const medal = medals[rank - 1] || `#${rank}`;
+            const userTag = `<@${p.user_id}>`;
 
-            // Try to resolve username (might be null if user left, handled gracefully)
-            // Fetching users can be async, but for a simple list we often use cache or just ID if missing.
-            let userTag = `<@${id}>`;
-
-            // Find their favorite drink
-            let usual = "Unknown";
-            let max = 0;
-            for (const [d, count] of Object.entries(stats.history)) {
-                if (count > max) {
-                    max = count;
-                    usual = d;
-                }
-            }
+            // Get favorite
+            const favRes = await db.query(`
+                SELECT drink_name FROM drinks 
+                WHERE user_id = $1 AND guild_id = $2 
+                ORDER BY count DESC LIMIT 1
+            `, [p.user_id, interaction.guildID]);
+            
+            const usual = favRes.rows[0] ? favRes.rows[0].drink_name : "Unknown";
 
             description += `**${medal}** ${userTag}\n`;
-            description += `> 🧾 **${stats.totalOrders}** drinks • 🍸 The Usual: *${usual}*\n\n`;
+            description += `> 🍸 **${p.total_orders}** drinks • 🥃 The Usual: *${usual}*\n\n`;
             rank++;
         }
 
-        // 4. Send Embed
         await interaction.createMessage({
             embeds: [
                 {
-                    title: "🏆 VA-11 HALL-A | Employee of the Month? No, Regulars.",
+                    title: "🏆 VA-11 HALL-A | Regulars",
                     description: description,
-                    color: 0x00ff9d, // Neon Green
-                    footer: {
-                        text: "Drink responsibly. Or don't. I'm a robot.",
-                    },
-                    image: {
-                        url: "https://cdna.artstation.com/p/assets/images/images/018/654/420/large/matthew-hellmann-va-11-hall-a-02.jpg?1560207955",
-                    }, // Optional decorative banner
+                    color: 0x00ff9d,
+                    footer: { text: "Drink responsibly. Or don't. I'm a robot." },
+                    image: { url: "https://static.wikia.nocookie.net/va11halla/images/7/73/Jill%27s_upgraded_room.png" }
                 },
             ],
         });
