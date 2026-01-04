@@ -2,7 +2,19 @@ const { db } = require('../utils/db');
 const DEFAULT_RULES = require('../utils/default');
 
 // --- CONSTANTS ---
-const PAGE_SIZE = 10; // Commands per page
+const PAGE_SIZE = 10;
+const BANNER_URL = "https://images.steamusercontent.com/ugc/790863751169443352/AAC9980582D8B930F8B8136B1CDBEAD1B2766C19/?imw=1024&imh=576&ima=fit&impolicy=Letterbox&imcolor=%23000000&letterbox=true";
+
+// Map Discord Bitfield Strings to Human Readable Names
+const PERM_MAP = {
+    "8": "Administrator",
+    "32": "Manage Guild",
+    "268435456": "Manage Roles",
+    "8192": "Manage Messages",
+    "2": "Kick Members",
+    "4": "Ban Members",
+    "0": "Everyone"
+};
 
 // --- HELPERS ---
 const getCommandNames = (bot) => {
@@ -12,7 +24,10 @@ const getCommandNames = (bot) => {
 };
 
 const formatPerm = (perm) => {
-    if (!perm) return "Everyone";
+    if (!perm || perm === 'null') return "Everyone";
+    // If it's a known bitfield (e.g., "8"), return the name
+    if (PERM_MAP[perm]) return PERM_MAP[perm];
+    // Otherwise, clean up camelCase (e.g. ManageGuild)
     return perm.replace(/([A-Z])/g, ' $1').trim();
 };
 
@@ -27,19 +42,8 @@ module.exports = {
             description: 'Enable or disable a command globally.',
             type: 1, 
             options: [
-                {
-                    name: 'command',
-                    description: 'The command to configure.',
-                    type: 3,
-                    required: true,
-                    autocomplete: true
-                },
-                {
-                    name: 'status',
-                    description: 'New status for the command.',
-                    type: 5, 
-                    required: true
-                }
+                { name: 'command', description: 'The command to configure.', type: 3, required: true, autocomplete: true },
+                { name: 'status', description: 'New status for the command.', type: 5, required: true }
             ]
         },
         {
@@ -47,42 +51,26 @@ module.exports = {
             description: 'Restrict a command to a specific channel.',
             type: 1,
             options: [
-                {
-                    name: 'command',
-                    description: 'The command to restrict.',
-                    type: 3,
-                    required: true,
-                    autocomplete: true
-                },
-                {
-                    name: 'channel',
-                    description: 'The channel to allow (leave empty to allow everywhere).',
-                    type: 7, 
-                    required: false
-                }
+                { name: 'command', description: 'The command to restrict.', type: 3, required: true, autocomplete: true },
+                { name: 'channel', description: 'The channel (leave empty for Global).', type: 7, required: false }
             ]
         },
         {
             name: 'permission',
-            description: 'Set the minimum permission required to use a command.',
+            description: 'Set the minimum permission required.',
             type: 1,
             options: [
-                {
-                    name: 'command',
-                    description: 'The command to configure.',
-                    type: 3,
-                    required: true,
-                    autocomplete: true
-                },
-                {
-                    name: 'level',
-                    description: 'The permission required.',
-                    type: 3,
+                { name: 'command', description: 'The command to configure.', type: 3, required: true, autocomplete: true },
+                { 
+                    name: 'level', 
+                    description: 'The permission required.', 
+                    type: 3, 
                     required: true,
                     choices: [
                         { name: 'Reset to Default', value: 'DEFAULT' },
                         { name: 'Administrator', value: 'Administrator' },
                         { name: 'Manage Server', value: 'ManageGuild' },
+                        { name: 'Manage Roles', value: 'ManageRoles' },
                         { name: 'Manage Messages', value: 'ManageMessages' },
                         { name: 'Kick Members', value: 'KickMembers' },
                         { name: 'Ban Members', value: 'BanMembers' },
@@ -91,107 +79,92 @@ module.exports = {
                 }
             ]
         },
-        // --- MODIFIED OVERVIEW ---
         {
             name: 'overview',
-            description: 'View settings. Leave "command" empty to see ALL commands.',
+            description: 'View settings. Leave "command" empty to see ALL.',
             type: 1,
             options: [
-                {
-                    name: 'command',
-                    description: 'Specific command to view (Optional).',
-                    type: 3,
-                    required: false, // NOW OPTIONAL
-                    autocomplete: true
-                }
+                { name: 'command', description: 'Specific command (Optional).', type: 3, required: false, autocomplete: true }
             ]
         }
     ],
 
-    // --- MAIN EXECUTION ---
     async execute(interaction, bot) {
         const sub = interaction.data.options[0];
         const args = sub.options || [];
         const getVal = (n) => args.find(o => o.name === n)?.value;
         const commandName = getVal('command');
 
-        // Validation for subcommands that REQUIRE a command name
         if (sub.name !== 'overview' && !commandName) {
              return interaction.createMessage({ content: "❌ You must specify a command.", flags: 64 });
         }
 
         const client = await db.connect();
         try {
-            // 1. Fetch current settings
             const res = await client.query("SELECT command_rules FROM guild_settings WHERE guild_id = $1", [interaction.guildID]);
             let rules = res.rows[0]?.command_rules || {};
 
-            // --- HANDLING OVERVIEW ---
+            // --- OVERVIEW ---
             if (sub.name === 'overview') {
-                
-                // CASE A: Single Command Overview
                 if (commandName) {
                     if (!bot.commands.has(commandName)) {
                         return interaction.createMessage({ content: `❌ Command \`${commandName}\` not found.`, flags: 64 });
                     }
-                    const payload = this.generateSingleOverview(commandName, rules);
+                    const payload = this.generateSingleOverview(commandName, rules, bot);
                     return interaction.createMessage(payload);
-                } 
-                
-                // CASE B: List All Commands (Paginated)
-                else {
+                } else {
                     const botCommands = getCommandNames(bot).sort();
-                    const payload = this.generateListPage(botCommands, rules, 1); // Start at Page 1
+                    const payload = this.generateListPage(botCommands, rules, 1, bot);
                     return interaction.createMessage(payload);
                 }
             }
 
-            // --- HANDLING SETTINGS CHANGES (Toggle/Channel/Perms) ---
+            // --- EDITING SETTINGS ---
             if (!bot.commands.has(commandName)) return interaction.createMessage({ content: "❌ Command not found.", flags: 64 });
             
-            // Resolve Defaults
-            const defRule = DEFAULT_RULES[commandName] || {};
-            if (!rules[commandName]) rules[commandName] = { ...defRule };
+            // Initialize if missing
+            if (!rules[commandName]) rules[commandName] = {};
+            const rule = rules[commandName];
 
             let responseText = "";
 
             if (sub.name === 'toggle') {
                 const status = getVal('status');
-                rules[commandName].enabled = status;
+                rule.enabled = status;
                 responseText = `✅ **${commandName}** is now **${status ? 'ENABLED' : 'DISABLED'}**.`;
             } 
             else if (sub.name === 'channel') {
                 const channelID = getVal('channel');
-                if (!rules[commandName].allowed_channels) rules[commandName].allowed_channels = [];
+                if (!rule.allowed_channels) rule.allowed_channels = [];
 
                 if (channelID) {
-                    if (rules[commandName].allowed_channels.includes(channelID)) {
-                        rules[commandName].allowed_channels = rules[commandName].allowed_channels.filter(c => c !== channelID);
+                    if (rule.allowed_channels.includes(channelID)) {
+                        rule.allowed_channels = rule.allowed_channels.filter(c => c !== channelID);
                         responseText = `✅ **${commandName}** is no longer restricted to <#${channelID}>.`;
                     } else {
-                        rules[commandName].allowed_channels.push(channelID);
+                        rule.allowed_channels.push(channelID);
                         responseText = `✅ **${commandName}** is now allowed in <#${channelID}>.`;
                     }
                 } else {
-                    rules[commandName].allowed_channels = [];
+                    rule.allowed_channels = [];
                     responseText = `✅ **${commandName}** is now allowed in **ALL** channels.`;
                 }
             } 
             else if (sub.name === 'permission') {
                 const level = getVal('level');
                 if (level === 'DEFAULT') {
-                    delete rules[commandName].required_perm;
+                    delete rule.required_perm;
                     responseText = `✅ **${commandName}** permission reset to default.`;
                 } else if (level === 'null') {
-                    rules[commandName].required_perm = null;
+                    rule.required_perm = 'null';
                     responseText = `✅ **${commandName}** is now available to **everyone**.`;
                 } else {
-                    rules[commandName].required_perm = level;
+                    rule.required_perm = level;
                     responseText = `✅ **${commandName}** now requires **${formatPerm(level)}**.`;
                 }
             }
 
-            // Save to DB
+            // Save
             const rulesJson = JSON.stringify(rules);
             if (res.rowCount === 0) {
                 await client.query("INSERT INTO guild_settings (guild_id, command_rules) VALUES ($1, $2)", [interaction.guildID, rulesJson]);
@@ -209,26 +182,19 @@ module.exports = {
         }
     },
 
-    // --- INTERACTION HANDLER (Buttons) ---
     async handleButton(interaction, bot) {
         const customId = interaction.data.custom_id;
         if (!customId.startsWith('config_page_')) return;
 
-        // "config_page_2" -> page = 2
         const page = parseInt(customId.split('_')[2]);
-
         const client = await db.connect();
         try {
-            // We need to fetch rules again to be accurate
             const res = await client.query("SELECT command_rules FROM guild_settings WHERE guild_id = $1", [interaction.guildID]);
             const rules = res.rows[0]?.command_rules || {};
             const botCommands = getCommandNames(bot).sort();
 
-            const payload = this.generateListPage(botCommands, rules, page);
-            
-            // Update the message
+            const payload = this.generateListPage(botCommands, rules, page, bot);
             await interaction.editParent(payload);
-
         } catch (err) { 
             console.error(err);
         } finally {
@@ -236,7 +202,6 @@ module.exports = {
         }
     },
 
-    // --- AUTOCOMPLETE ---
     async autocomplete(interaction, bot) {
         const focused = interaction.data.options[0].options.find(o => o.focused);
         const input = focused.value.toLowerCase();
@@ -245,27 +210,49 @@ module.exports = {
         return filtered.slice(0, 25).map(name => ({ name: name, value: name }));
     },
 
-    // --- VIEW GENERATORS ---
+    // --- SMART VIEW GENERATORS ---
 
-    generateSingleOverview(commandName, rules) {
-        const dbRule = rules[commandName] || {};
-        const defRule = DEFAULT_RULES[commandName] || {};
+    getEffectiveSettings(cmdName, rules, bot) {
+        const cmdObj = bot.commands.get(cmdName);
+        const dbRule = rules[cmdName] || {};
+        const defRule = DEFAULT_RULES[cmdName] || {};
+
+        // 1. ENABLED
+        const enabled = dbRule.hasOwnProperty('enabled') ? dbRule.enabled : (defRule.enabled ?? true);
         
-        // Resolve effective settings
-        const isEnabled = dbRule.hasOwnProperty('enabled') ? dbRule.enabled : (defRule.enabled ?? true);
+        // 2. CHANNELS
         const channels = dbRule.allowed_channels || defRule.allowed_channels || [];
-        let perm = dbRule.hasOwnProperty('required_perm') ? dbRule.required_perm : defRule.required_perm;
-        if (perm === 'null' || perm === null) perm = null;
 
-        const statusIcon = isEnabled ? '🟢' : '🔴';
+        // 3. PERMISSIONS (The Fix)
+        let perm = null;
+
+        if (dbRule.hasOwnProperty('required_perm')) {
+            // DB Override
+            perm = dbRule.required_perm;
+        } else if (defRule.hasOwnProperty('required_perm')) {
+            // Defaults File
+            perm = defRule.required_perm;
+        } else if (cmdObj && cmdObj.default_member_permissions) {
+            // Native Command File (e.g. "32" for Manage Guild)
+            perm = cmdObj.default_member_permissions;
+        }
+
+        return { enabled, channels, perm };
+    },
+
+    generateSingleOverview(cmdName, rules, bot) {
+        const { enabled, channels, perm } = this.getEffectiveSettings(cmdName, rules, bot);
+
+        const statusIcon = enabled ? '🟢' : '🔴';
         const channelText = channels.length > 0 ? channels.map(id => `<#${id}>`).join(', ') : "🌐 Global";
 
         return {
             embeds: [{
-                title: `${statusIcon} Settings: ${commandName}`,
-                color: isEnabled ? 0x43b581 : 0xf04747,
+                title: `${statusIcon} Settings: ${cmdName}`,
+                color: enabled ? 0x43b581 : 0xf04747,
+                image: { url: BANNER_URL },
                 fields: [
-                    { name: 'Status', value: `**${isEnabled ? 'Enabled' : 'Disabled'}**`, inline: true },
+                    { name: 'Status', value: `**${enabled ? 'Enabled' : 'Disabled'}**`, inline: true },
                     { name: 'Permission', value: `🔒 ${formatPerm(perm)}`, inline: true },
                     { name: 'Channels', value: channelText, inline: false }
                 ]
@@ -273,7 +260,7 @@ module.exports = {
         };
     },
 
-    generateListPage(allCommands, rules, page) {
+    generateListPage(allCommands, rules, page, bot) {
         const totalPages = Math.ceil(allCommands.length / PAGE_SIZE);
         if (page < 1) page = 1;
         if (page > totalPages) page = totalPages;
@@ -282,57 +269,31 @@ module.exports = {
         const end = start + PAGE_SIZE;
         const currentSlice = allCommands.slice(start, end);
 
-        // Build list description
         const lines = currentSlice.map(cmd => {
-            const dbRule = rules[cmd] || {};
-            const defRule = DEFAULT_RULES[cmd] || {};
-            
-            const isEnabled = dbRule.hasOwnProperty('enabled') ? dbRule.enabled : (defRule.enabled ?? true);
-            let perm = dbRule.hasOwnProperty('required_perm') ? dbRule.required_perm : defRule.required_perm;
-            const channels = dbRule.allowed_channels || defRule.allowed_channels || [];
+            const { enabled, channels, perm } = this.getEffectiveSettings(cmd, rules, bot);
 
-            const icon = isEnabled ? '🟢' : '🔴';
-            const permShort = perm ? (perm === 'Administrator' ? 'Admin' : 'Perms') : 'All';
+            const icon = enabled ? '🟢' : '🔴';
+            const permShort = formatPerm(perm); // Now correctly returns "Manage Roles" etc.
             const chanShort = channels.length > 0 ? '#Limit' : 'Global';
 
-            // Format: 🟢 **ping**: All | Global
             return `${icon} **${cmd}**: ${permShort} | ${chanShort}`;
         });
 
-        const embed = {
-            title: '🎛️ Server Configuration',
-            description: lines.join('\n') || "No commands found.",
-            color: 0x2b2d31,
-            footer: { text: `Page ${page} of ${totalPages} • Total: ${allCommands.length}` }
-        };
-
-        // Navigation Buttons
-        const components = [];
-        if (totalPages > 1) {
-            components.push({
+        return {
+            embeds: [{
+                title: '🎛️ Server Configuration',
+                description: lines.join('\n') || "No commands found.",
+                color: 0x2b2d31,
+                image: { url: BANNER_URL },
+                footer: { text: `Page ${page} of ${totalPages} • Total: ${allCommands.length}` }
+            }],
+            components: totalPages > 1 ? [{
                 type: 1,
                 components: [
-                    {
-                        type: 2, // Button
-                        style: 2, // Secondary (Gray)
-                        label: '◀ Prev',
-                        custom_id: `config_page_${page - 1}`,
-                        disabled: page === 1
-                    },
-                    {
-                        type: 2, // Button
-                        style: 2, // Secondary (Gray)
-                        label: 'Next ▶',
-                        custom_id: `config_page_${page + 1}`,
-                        disabled: page === totalPages
-                    }
+                    { type: 2, style: 2, label: '◀ Prev', custom_id: `config_page_${page - 1}`, disabled: page === 1 },
+                    { type: 2, style: 2, label: 'Next ▶', custom_id: `config_page_${page + 1}`, disabled: page === totalPages }
                 ]
-            });
-        }
-
-        return {
-            embeds: [embed],
-            components: components
+            }] : []
         };
     }
 };
