@@ -71,22 +71,24 @@ module.exports = {
                         }
                     }
                 }
-            } catch (err) {
-                console.error("Gatekeeper Error:", err);
-                // If DB fails, we proceed with execution as a safety fail-open
+            }  catch (error) {
+        console.error("Command Execution Error:", error);
+        
+        try {
+            // If the interaction is already acknowledged (or deferred), we must use createFollowup
+            // If it's dead (Unknown Interaction), this inner try/catch prevents a full crash
+            if (interaction.acknowledged) {
+                await interaction.createFollowup({ content: "⚠️ There was an error while executing this command!", flags: 64 });
+            } else {
+                await interaction.createMessage({ content: "⚠️ There was an error while executing this command!", flags: 64 });
             }
-            // --- GATEKEEPER: END ---
-
-            try {
-                await command.execute(interaction, bot, pendingActions);
-            } catch (err) {
-                console.error(`Error in /${cmdName}:`, err);
-                if (!interaction.acknowledged) {
-                    await interaction.createMessage({ content: "❌ Command execution error.", flags: 64 });
-                }
-            }
+        } catch (handlerError) {
+            // This happens if the interaction is truly gone (Unknown Interaction 10062)
+            // We suppress it to keep the bot alive.
+            console.warn("Could not send error response to user:", handlerError.message);
         }
-
+    }
+        }
         // ====================================================
         // 2. AUTOCOMPLETE SUGGESTIONS
         // ====================================================
