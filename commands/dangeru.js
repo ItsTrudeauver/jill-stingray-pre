@@ -12,11 +12,21 @@ module.exports = {
     name: "dangeru",
     description: "Manage the Dangeru textboard node.",
     options: [
-        { name: "setup", description: "Spawn the Terminal.", type: 1 },
-        { name: "wipe", description: "[OWNER] Wipe the database.", type: 1 },
-        { name: "post", description: "Post anonymously.", type: 1, options: [{ name: "message", type: 3, required: true }] }
-    ],
-
+    { name: "setup", description: "Spawn the Terminal.", type: 1 },
+    { name: "wipe", description: "[OWNER] Wipe the database.", type: 1 },
+    { name: "post", 
+      description: "Post anonymously.", 
+      type: 1, 
+      options: [
+          { 
+            name: "message", 
+            description: "The content of your anonymous post.", // THIS WAS MISSING
+            type: 3, 
+            required: true 
+          }
+      ] 
+    }
+],
     async execute(interaction, bot) {
         const sub = interaction.data.options[0];
 
