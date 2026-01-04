@@ -44,13 +44,12 @@ module.exports = {
 async function generateWelcomePayload(guild, bot) {
     const botMember = guild.members.get(bot.user.id);
     
-    // A. Find Highest Role (The Fix)
-    let highestRole = guild.roles.get(guild.id); // Default to @everyone
+    // A. Find Highest Role
+    let highestRole = guild.roles.get(guild.id);
     if (botMember.roles.length > 0) {
-        // Map ID to Role Object -> Sort by Position (Descending) -> Take Top
         const sortedRoles = botMember.roles
             .map(id => guild.roles.get(id))
-            .filter(r => r) // Safety filter
+            .filter(r => r)
             .sort((a, b) => b.position - a.position);
         
         if (sortedRoles.length > 0) highestRole = sortedRoles[0];
@@ -58,24 +57,20 @@ async function generateWelcomePayload(guild, bot) {
 
     // B. Check Permissions
     const hasManageRoles = botMember.permissions.has("manageRoles");
-    const hasManageChannels = botMember.permissions.has("manageChannels");
     
-    // C. Check Hierarchy (Are we at the bottom?)
-    // If our position is 0 or we only have @everyone, we are powerless.
+    // C. Check Hierarchy
     const isLowHierarchy = highestRole.position === 0 || botMember.roles.length === 0;
 
     // Build Status Text
     let statusText = "";
-    let color = 0x00ff9d; // Green (Success)
+    let color = 0x00ff9d; // Green
 
-    // PERMISSION CHECK
     if (hasManageRoles) statusText += "🟢 **Permissions:** `Manage Roles` active.\n";
     else {
         statusText += "🔴 **Permissions:** Missing `Manage Roles`. I cannot manage users.\n";
-        color = 0xff0055; // Red (Error)
+        color = 0xff0055; // Red
     }
 
-    // HIERARCHY CHECK
     if (isLowHierarchy) {
         statusText += "🔴 **Hierarchy:** I am at the bottom of the role list.\n";
         color = 0xff0055;
@@ -83,7 +78,6 @@ async function generateWelcomePayload(guild, bot) {
         statusText += `🟢 **Hierarchy:** Highest role is \`${highestRole.name}\`.\n`;
     }
 
-    // ADVICE GENERATOR
     let advice = "";
     if (!hasManageRoles || isLowHierarchy) {
         advice = "\n⚠️ **Action Required:**\n1. Go to **Server Settings > Roles**.\n2. Drag my role (**Jill Stingray**) above the roles you want me to manage.\n3. Ensure I have `Manage Roles` permission.";
@@ -108,13 +102,6 @@ async function generateWelcomePayload(guild, bot) {
                     style: 1, // Blurple
                     custom_id: "sys_verify_roles", 
                     emoji: { name: "🩺" }
-                },
-                {
-                    type: 2,
-                    label: "Open Dashboard",
-                    style: 2, // Gray
-                    custom_id: "dash_launch_intro", // Assuming this triggers dashboard
-                    emoji: { name: "🎛️" }
                 }
             ]
         }]
