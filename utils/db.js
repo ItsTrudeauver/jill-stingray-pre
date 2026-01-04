@@ -7,6 +7,16 @@ const db = new Pool({
 
 async function init() {
     try {
+        
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS pending_custom_actions (
+                user_id TEXT PRIMARY KEY,
+                guild_id TEXT,
+                new_name TEXT,
+                new_color INTEGER,
+                old_role_id TEXT
+            );
+        `);
 
         await db.query(`
             CREATE TABLE IF NOT EXISTS guild_settings (

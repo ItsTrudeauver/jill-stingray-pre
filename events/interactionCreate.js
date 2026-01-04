@@ -154,13 +154,10 @@ module.exports = {
             // --- ROUTE B: SESSION-BASED ACTIONS ---
 
             // Custom Role Overwrite
+           // Custom Role Overwrite
             if (customId.startsWith("custom_")) {
-                const data = pendingActions.get(interaction.member.id);
-                if (!data || data.type !== "custom_overwrite") {
-                    return interaction.createMessage({ content: "❌ Session expired. Run `/custom role` again.", flags: 64 });
-                }
                 const cmd = bot.commands.get("custom");
-                if (cmd) await cmd.handleInteraction(interaction, bot, data);
+                if (cmd) await cmd.handleInteraction(interaction, bot);
                 return;
             }
 
