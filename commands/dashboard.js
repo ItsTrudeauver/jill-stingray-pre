@@ -3,13 +3,13 @@ const DEFAULT_RULES = require('../utils/default');
 const PROTECTED_MODULES = ['dashboard', 'help'];
 
 module.exports = {
-    // Eris uses raw JSON for command data
-    data: {
-        name: 'dashboard',
-        description: 'Configure which bot modules are enabled in this server.',
-        default_member_permissions: "32" // 'Manage Guild' permission bit
-    },
+    // 1. Properties at the ROOT level (No 'data' wrapper)
+    name: 'dashboard',
+    description: 'Configure which bot modules are enabled in this server.',
+    type: 1, // Slash Command
+    default_member_permissions: "32", // 'Manage Guild' permission bit
 
+    // 2. The execution entry point (Check if your other commands use 'execute' or 'run')
     async execute(interaction) {
         await this.renderDashboard(interaction);
     },
@@ -17,21 +17,20 @@ module.exports = {
     async renderDashboard(interaction, update = false) {
         const client = await pool.connect();
         try {
-            // 1. Get commands from the client
-            // In Eris, client is usually accessible via the interaction
-            const botInstance = interaction.channel.client || interaction.client; 
-            const botCommands = botInstance.commands; // Assuming you attached commands here in index.js
+            // Fetch bot commands (Adjust path if 'interaction.client' is different in your handler)
+            const botInstance = interaction.channel?.client || interaction.client; 
+            const botCommands = botInstance.commands;
 
-            // 2. Filter out protected modules
+            // Filter out protected modules
             const validCommands = Array.from(botCommands.values()).filter(cmd => 
-                !PROTECTED_MODULES.includes(cmd.data.name)
+                !PROTECTED_MODULES.includes(cmd.name) // Changed cmd.data.name to cmd.name
             );
 
-            // 3. Fetch DB settings
+            // Fetch DB settings
             const res = await client.query("SELECT command_rules FROM guild_settings WHERE guild_id = $1", [interaction.guildID]);
             let dbRules = res.rows[0]?.command_rules || {};
 
-            // 4. Merge defaults
+            // Merge defaults
             const currentRules = { ...DEFAULT_RULES };
             Object.keys(dbRules).forEach(key => {
                 if (currentRules[key]) {
@@ -39,13 +38,12 @@ module.exports = {
                 }
             });
 
-            // 5. Build Options (Raw JSON for Eris)
+            // Build Options
             const options = validCommands.map(cmd => {
-                const name = cmd.data.name;
+                const name = cmd.name; // Changed cmd.data.name to cmd.name
                 const isEnabled = currentRules[name] ? currentRules[name].enabled : true;
                 
-                // Get description (truncate to 100 chars)
-                let desc = cmd.data.description || 'No description provided.';
+                let desc = cmd.description || 'No description provided.';
                 if (desc.length > 100) desc = desc.substring(0, 97) + '...';
 
                 return {
@@ -57,22 +55,18 @@ module.exports = {
                 };
             });
 
-            // Sort alphabetical
             options.sort((a, b) => a.label.localeCompare(b.label));
-
-            // Slice to 25 limit
             const safeOptions = options.slice(0, 25);
 
-            // 6. Construct Response Payload
             const payload = {
                 embeds: [{
                     title: '🎛️ Dynamic Server Dashboard',
                     description: 'Select modules to enable/disable.\nDescriptions are pulled automatically from command files.',
-                    color: 0x2b2d31, // Hex integer
+                    color: 0x2b2d31,
                     footer: { text: `Total Modules: ${validCommands.length} | Showing: ${safeOptions.length}` }
                 }],
                 components: [{
-                    type: 1, // Action Row
+                    type: 1, 
                     components: [{
                         type: 3, // String Select Menu
                         custom_id: 'dashboard_select',
@@ -100,9 +94,7 @@ module.exports = {
         }
     },
 
-    // Handle the Interaction
     async handleSelect(interaction) {
-        // Eris Select Menu interactions usually have 'data.values'
         const selectedModules = interaction.data.values; 
         const client = await pool.connect();
 
@@ -110,20 +102,18 @@ module.exports = {
             const res = await client.query("SELECT command_rules FROM guild_settings WHERE guild_id = $1", [interaction.guildID]);
             let rules = res.rows[0]?.command_rules || {};
 
-            // Get available commands to check against
-            const botInstance = interaction.channel.client || interaction.client;
+            const botInstance = interaction.channel?.client || interaction.client;
             const botCommands = botInstance.commands;
-
+            
             const validCommands = Array.from(botCommands.values()).filter(cmd => 
-                !PROTECTED_MODULES.includes(cmd.data.name)
+                !PROTECTED_MODULES.includes(cmd.name)
             );
 
-            // Sort and slice exactly like render to match the menu visibility
-            const options = validCommands.map(c => c.data.name).sort(); 
-            const visibleCommandNames = options.slice(0, 25); // Only update visible ones
+            // Re-slice to ensure we toggle only what was visible
+            const options = validCommands.map(c => c.name).sort(); 
+            const visibleCommandNames = options.slice(0, 25);
 
             visibleCommandNames.forEach(name => {
-                // Init rule if missing
                 if (!rules[name]) rules[name] = { enabled: true, ...DEFAULT_RULES[name] };
 
                 // If selected -> Enabled. If NOT selected -> Disabled.
@@ -142,10 +132,7 @@ module.exports = {
                 await client.query("UPDATE guild_settings SET command_rules = $2 WHERE guild_id = $1", [interaction.guildID, rulesJson]);
             }
 
-            // Acknowledge interaction (required in Eris to prevent "Interaction Failed")
             await interaction.deferUpdate();
-            
-            // Re-render
             await this.renderDashboard(interaction, true);
 
         } catch (err) {
