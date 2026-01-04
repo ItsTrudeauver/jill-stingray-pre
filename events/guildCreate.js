@@ -1,5 +1,5 @@
 const { db } = require("../utils/db");
-const { DEFAULT_RULES } = require("../utils/defaults");
+const { DEFAULT_RULES } = require("../utils/default");
 
 module.exports = {
     name: "guildCreate",
