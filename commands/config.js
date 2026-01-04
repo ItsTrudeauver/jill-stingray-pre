@@ -1,5 +1,6 @@
 const { db } = require('../utils/db');
-const DEFAULT_RULES = require('../utils/default');
+const Permissions = require("../utils/permissions");
+const { DEFAULT_RULES } = require('../utils/default');
 
 // --- CONSTANTS ---
 const PAGE_SIZE = 10;
@@ -90,6 +91,7 @@ module.exports = {
     ],
 
     async execute(interaction, bot) {
+        if (!await Permissions.check(interaction, 'config')) return;
         const sub = interaction.data.options[0];
         const args = sub.options || [];
         const getVal = (n) => args.find(o => o.name === n)?.value;

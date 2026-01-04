@@ -1,5 +1,5 @@
 const { db } = require("../utils/db");
-
+const Permissions = require("../utils/permissions");
 module.exports = {
     name: "trigger",
     description: "Manage custom server triggers.",
@@ -76,9 +76,7 @@ module.exports = {
         // --- ADD ---
         if (sub === "add") {
             // Check Permissions (Admin/Manager only)
-            if (!interaction.member.permissions.has("manageMessages")) {
-                return interaction.createMessage({ content: "❌ You need `Manage Messages` permissions.", flags: 64 });
-            }
+            if (!await Permissions.check(interaction, 'trigger')) return;
 
             const opts = interaction.data.options[0].options || [];
             const keyword = opts.find(o => o.name === "keyword").value;

@@ -1,4 +1,5 @@
 const Eris = require("eris");
+const Permissions = require("../utils/permissions");
 
 module.exports = {
     name: "role",
@@ -125,6 +126,7 @@ module.exports = {
     ],
 
     async execute(interaction, bot, pendingActions) {
+        if (!await Permissions.check(interaction, 'role')) return;
         const subCommand = interaction.data.options[0];
         const guild = bot.guilds.get(interaction.guildID);
 

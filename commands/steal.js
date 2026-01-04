@@ -1,3 +1,5 @@
+const Permissions = require("../utils/permissions");
+
 module.exports = {
     name: "steal",
     description: "Seize an emoji from another server and add it to this node.",
@@ -16,15 +18,8 @@ module.exports = {
         },
     ],
 
-    async execute(interaction, bot) {
-        // 1. PERMISSIONS (Manage Emojis)
-        if (!interaction.member.permissions.has("manageEmojisAndStickers")) {
-            return interaction.createMessage({
-                content:
-                    "❌ **Access Denied.** You need `Manage Emojis` permission to seize assets.",
-                flags: 64,
-            });
-        }
+    async execute(interaction) {
+        if (!await Permissions.check(interaction, 'steal')) return;
 
         await interaction.defer();
 

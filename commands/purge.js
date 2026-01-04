@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 
 module.exports = {
-    name: "clean",
+    name: "purge",
     description: "Sweep away messages and scold the messy ones.",
     options: [
         {
@@ -14,14 +14,8 @@ module.exports = {
             max_value: 100,
         },
     ],
-    async execute(interaction, bot) {
-        // 1. PERMISSION CHECK
-        if (!interaction.member.permissions.has("manageMessages")) {
-            return interaction.createMessage({
-                content: "❌ You don't have the authority to clean this bar.",
-                flags: 64,
-            });
-        }
+   async execute(interaction) {
+        if (!await Permissions.check(interaction, 'purge')) return;
 
         const amount = interaction.data.options[0].value;
 

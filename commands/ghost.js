@@ -1,6 +1,7 @@
 const Eris = require("eris");
 const fs = require("fs");
 const path = require("path");
+const Permissions = require("../utils/permissions");
 
 // Paths to your data files
 const EMOJI_PATH = path.join(__dirname, "../data/emoji_stats.json");
@@ -11,21 +12,8 @@ module.exports = {
     description: "Data Integrity & Forensics (The Ghost Hunter).",
     options: [],
 
-    async execute(interaction, bot, pendingActions) {
-        // Security: Manager Only
-        if (!interaction.member.permissions.has("manageGuild")) {
-            return interaction.createMessage({
-                embeds: [
-                    {
-                        title: "🚫 Access Denied",
-                        description:
-                            "You need `Manage Server` permissions to access the integrity database.",
-                        color: 0xff0000,
-                    },
-                ],
-                flags: 64,
-            });
-        }
+    async execute(interaction, bot) {
+        if (!await Permissions.check(interaction, 'ghost')) return;
 
         await interaction.acknowledge();
 

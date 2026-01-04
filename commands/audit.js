@@ -1,4 +1,5 @@
 const Eris = require("eris");
+const Permissions = require("../utils/permissions");
 
 module.exports = {
     name: "audit",
@@ -10,16 +11,8 @@ module.exports = {
         await interaction.acknowledge();
 
         // 2. SECURITY CHECK
-        if (!interaction.member.permissions.has("manageRoles")) {
-            return interaction.createMessage({
-                embeds: [{
-                    title: "Access Denied",
-                    description: "You lack the necessary clearance (Manage Roles) to view these records.",
-                    color: 0xff0000,
-                }],
-                flags: 64,
-            });
-        }
+        if (!await Permissions.check(interaction, 'audit')) return;
+        await interaction.acknowledge();
 
         // Session State
         pendingActions.set(interaction.member.id, {
