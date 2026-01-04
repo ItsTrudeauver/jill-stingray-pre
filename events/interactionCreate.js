@@ -8,6 +8,15 @@ const pendingActions = new Map();
 module.exports = {
     name: "interactionCreate",
     async execute(interaction, bot) {
+
+        if (interaction.type === 4) { // 4 = ApplicationCommandAutocomplete
+            const cmd = bot.commands.get(interaction.data.name);
+            if (cmd && cmd.autocomplete) {
+                const choices = await cmd.autocomplete(interaction, bot);
+                return interaction.result(choices); // Send choices back to Discord
+            }
+            return; 
+        }
         
         // ====================================================
         // 1. SLASH COMMANDS (With Security Gatekeeper)
